@@ -356,8 +356,6 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-secondary,rgba(180,180,180,.95))}
 .vhk-right{display:flex;align-items:center;gap:6px;flex:none}
 .vhk-kbd.vhk-off{color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.9));border-style:dashed}
-.vhk-tip{padding:10px 14px 12px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.85));
-  border-top:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.16))}
 .vhk-foot{margin:12px 0 2px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.85))}
 .vhk-disabled{opacity:.45;pointer-events:none}
 `;
@@ -476,10 +474,7 @@ window.__ModuleLoader__.load({
               value: state.focusHotkey,
               conflict: state.hotkey,
               onChange: (focusHotkey) => update({ focusHotkey }),
-            }),
-            h('div', { className: 'vhk-tip' },
-              t('点键位可以重新录一个组合；录制时按 Esc 就清空（显示「未设置」即关闭）。',
-                'Click a key to record a new combination; press Esc while recording to clear it — "Not set" turns the action off.'))),
+            })),
 
           h('div', { className: 'vhk-group' }, t('自动停止', 'Auto stop')),
           h('div', { className: 'vhk-card' },
@@ -505,8 +500,8 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'vhk-val' }, seconds(state.silenceMs))))),
 
           h('p', { className: 'vhk-foot' },
-            t('设置保存在当前浏览器（桌面版同样可用），改完立即生效；换浏览器或清缓存会回到默认。',
-              'Settings live in this browser (works the same in the desktop app) and apply immediately; clearing site data restores the defaults.')));
+            t('设置存在这台浏览器里，改完立即生效；换浏览器会回到默认热键（功能照常可用）。',
+              'Settings are stored in this browser and apply immediately; another browser simply starts from the defaults.')));
       };
     }
 

@@ -36,8 +36,7 @@ dsh ships no "focus the input" command, which is exactly where people get stuck.
 
 Both hotkeys can be disabled:
 
-- while recording a shortcut, press `Esc` to clear it to **Not set** (`Backspace` / `Delete` work too);
-- or click the small **Clear** button next to the key.
+- click the key to start recording, then press `Esc` to clear it to **Not set** (`Backspace` / `Delete` work too).
 
 When a shortcut shows "Not set" that action is fully disabled — no listener, no key swallowed. A shortcut is only saved once you press a **regular key with `Ctrl`/`Alt`/`Meta`**; modifiers alone just show a hint.
 

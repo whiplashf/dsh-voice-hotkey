@@ -356,9 +356,8 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-secondary,rgba(180,180,180,.95))}
 .vhk-right{display:flex;align-items:center;gap:6px;flex:none}
 .vhk-kbd.vhk-off{color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.9));border-style:dashed}
-.vhk-clear{flex:none;padding:4px 8px;border-radius:6px;border:1px solid transparent;background:transparent;
-  color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.9));font:inherit;font-size:12px;cursor:pointer}
-.vhk-clear:hover{color:var(--dsw-alias-label-primary,#e8e8e8);background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.14))}
+.vhk-tip{padding:10px 14px 12px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.85));
+  border-top:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.16))}
 .vhk-foot{margin:12px 0 2px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.85))}
 .vhk-disabled{opacity:.45;pointer-events:none}
 `;
@@ -443,15 +442,7 @@ window.__ModuleLoader__.load({
               onClick: () => { setHint(''); setCapturing((v) => !v); },
             }, capturing
               ? t('请按组合键…（Esc 清空）', 'Press keys… (Esc clears)')
-              : (value ? formatHotkey(value) : t('未设置', 'Not set'))),
-            value && !capturing
-              ? h('button', {
-                type: 'button',
-                className: 'vhk-clear',
-                title: t('清除这个快捷键', 'Clear this shortcut'),
-                onClick: () => { setHint(''); props.onChange(null); },
-              }, t('清除', 'Clear'))
-              : null));
+              : (value ? formatHotkey(value) : t('未设置', 'Not set')))));
       }
 
       return function VoiceHotkeySettings() {
@@ -485,7 +476,10 @@ window.__ModuleLoader__.load({
               value: state.focusHotkey,
               conflict: state.hotkey,
               onChange: (focusHotkey) => update({ focusHotkey }),
-            })),
+            }),
+            h('div', { className: 'vhk-tip' },
+              t('点键位可以重新录一个组合；录制时按 Esc 就清空（显示「未设置」即关闭）。',
+                'Click a key to record a new combination; press Esc while recording to clear it — "Not set" turns the action off.'))),
 
           h('div', { className: 'vhk-group' }, t('自动停止', 'Auto stop')),
           h('div', { className: 'vhk-card' },

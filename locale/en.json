@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Voice hotkey",
+    "description": "Toggles microphone recording with Alt+V and stops automatically after two seconds of silence, or immediately when you release a long press.",
+    "detail": "docs/DETAIL.md"
+  }
+}

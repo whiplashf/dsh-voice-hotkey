@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "语音快捷键",
+    "description": "用 Alt+V 开关麦克风录音，说完静音 2 秒自动停止并转写；长按 Alt+V 说话，松手立即停止。",
+    "detail": "docs/DETAIL.md"
+  }
+}

@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <b>Alt+V, speak, silence stops it, Enter sends.</b><br>
-  No mouse, no clicking the little microphone.
+  <b>Minimal push-to-talk voice input for DeepSeek Harness.</b><br>
+  Press a hotkey, speak, silence stops it, the text lands in the composer — Enter sends.
 </p>
 
 <p align="center">
@@ -26,19 +26,13 @@ Or type `dsh-voice-hotkey` into the install box on the **Plugins** page. Restart
 
 > Requires the official **Voice Input** bundle (it downloads the ~231 MB SenseVoice model on first use). This plugin is its remote control.
 
-## Use
+## Usage
 
-| Keys | What it does |
-| --- | --- |
-| `Alt + V` | start / stop. Short tap toggles, **hold 0.5 s and release** = stop on release |
-| `Ctrl + Alt + I` | focus the composer (dsh has no such command; can be disabled) |
-| `Esc` | cancel a take while recording; in settings, clears that hotkey |
+Press the hotkey, speak, and two seconds of silence ends the take; the text lands in the composer with focus intact, Enter sends. A short tap toggles, holding and releasing means "stop when I let go".
 
-Two seconds of silence ends the take, the text lands in the composer with focus intact, Enter sends.
+**Both hotkeys are yours to rebind or disable**, including a separate "focus the composer" hotkey (dsh has no such command). The silence threshold and auto-stop live in the same panel — the screenshot above.
 
-## Settings
-
-**Settings → Voice hotkey** (the screenshot above): both hotkeys are re-recordable and clearable, the silence threshold is 0.5–10 s and auto-stop can be turned off. Stored in this browser's `localStorage`.
+Settings are stored in this browser's `localStorage`.
 
 ## Notes
 

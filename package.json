@@ -1,8 +1,8 @@
 {
   "name": "dsh-voice-hotkey",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "type": "module",
-  "description": "Press Alt+V, speak, get the text in the composer: push-to-talk hotkey, silence auto-stop and a focus hotkey for DeepSeek Harness.",
+  "description": "Minimal push-to-talk voice input for DeepSeek Harness: hotkey to start, silence auto-stop, and a focus-composer hotkey.",
   "license": "MIT",
   "keywords": [
     "dsh",

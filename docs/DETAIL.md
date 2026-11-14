@@ -41,9 +41,11 @@ DSH 没有任何「把焦点送回输入框」的快捷键。官方语音插件�
 
 ## 设置存放
 
-浏览器 `localStorage` 键 `dsh-voice-hotkey:settings`，改完立即生效，不需要重启。清站点数据会回到默认。
+存在 dsh 服务端：`index.js` 声明 `Config`（四个字段都是 `.volatile()`），DSH 把它作为一个 settings namespace 提供，id 等于补丁行 id `voice-hotkey`；客户端用 `ctx.configForms.get('voice-hotkey')` 读、`form.set(field, value)` 写，值落在 profile 的用户设置文档里。改完立即生效，不需要重启。
 
-桌面版（Electron）里 `localStorage` 可能被 `file://` 或分区策略拦住，此时自动退化为内存存储：当次会话有效，不清空、不抛错。
+所以换浏览器、换设备、换访问地址（http/https、端口、域名）都是同一套设置。浏览器 `localStorage` 只作本地缓存与兜底：命名空间还没就绪时先用它顶上，服务器有一条都没存过时把本地值迁移上去（只迁移一次）。
+
+桌面版（Electron）不受 `file://` / 分区策略影响，因为真相在服务端；万一宿主链路不可用，仍退化为内存，不清空、不抛错。
 
 ## 边界
 

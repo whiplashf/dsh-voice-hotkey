@@ -9,8 +9,12 @@
 window.__ModuleLoader__.load({
   id: 'dsh-voice-hotkey',
   factory(require) {
-    // ── 设置（存本浏览器 localStorage，改完即时生效）─────────────────────────
+    // ── 设置 ────────────────────────────────────────────────────────────────
+    // 正式存储是 Host 端的 settings namespace（id 等于补丁行 id `voice-hotkey`），值落在
+    // profile 的用户设置文档里，换浏览器/换设备都不丢。localStorage 只是本地缓存，
+    // 命名空间还没就绪（老版本 Host、加载中）时先顶上。
     const STORE_KEY = 'dsh-voice-hotkey:settings';
+    const CONFIG_NS = 'voice-hotkey';
     const DEFAULT_HOTKEY = { code: 'KeyV', ctrl: false, alt: true, shift: false, meta: false };
     // 默认对齐主流：Copilot Chat 用 Ctrl+Alt+I 打开/聚焦聊天，Cursor 用 Ctrl+L（浏览器里被地址栏占用）、
     // Claude Code 用 Ctrl+Esc（Windows 上是开始菜单），所以 Web 上只有 Ctrl+Alt+I 是既主流又安全的。
@@ -74,7 +78,7 @@ window.__ModuleLoader__.load({
       try { window.localStorage?.setItem(STORE_KEY, value); } catch (e) { /* 只存内存 */ }
     }
 
-    function readSettings() {
+    function loadLocalSettings() {
       try {
         const raw = readRaw();
         if (!raw) return { ...DEFAULTS, hotkey: { ...DEFAULT_HOTKEY }, focusHotkey: { ...DEFAULT_FOCUS_HOTKEY } };
@@ -94,8 +98,88 @@ window.__ModuleLoader__.load({
       } catch (e) { return { ...DEFAULTS, hotkey: { ...DEFAULT_HOTKEY }, focusHotkey: { ...DEFAULT_FOCUS_HOTKEY } }; }
     }
 
+    // ── 设置状态：内存里的唯一真相 + 与 Host 设置命名空间同步 ────────────────
+    let configForm = null;
+    let settings = loadLocalSettings();
+    const settingsListeners = new Set();
+
+    function readSettings() {
+      return settings;
+    }
+
+    function notifySettings() {
+      for (const listener of [...settingsListeners]) {
+        try { listener(settings); } catch (e) { /* 单个订阅者失败不影响别人 */ }
+      }
+    }
+
+    function onChangeSettings(listener) {
+      settingsListeners.add(listener);
+      return () => { settingsListeners.delete(listener); };
+    }
+
+    function settingsFromConfig(value) {
+      const hotkey = parseHotkey(value?.hotkey, DEFAULT_HOTKEY);
+      let focusHotkey = parseHotkey(value?.focusHotkey, DEFAULT_FOCUS_HOTKEY);
+      if (hotkey && focusHotkey && sameHotkey(hotkey, focusHotkey)) {
+        focusHotkey = sameHotkey(DEFAULT_FOCUS_HOTKEY, hotkey)
+          ? { code: 'KeyB', ctrl: false, alt: true, shift: false, meta: false }
+          : { ...DEFAULT_FOCUS_HOTKEY };
+      }
+      return {
+        autoStop: typeof value?.autoStop === 'boolean' ? value.autoStop : DEFAULTS.autoStop,
+        silenceMs: clampSilence(value?.silenceMs),
+        hotkey,
+        focusHotkey,
+      };
+    }
+
+    function pushToConfig(next) {
+      if (!configForm) return;
+      const ops = [
+        ['hotkey', next.hotkey ? formatHotkey(next.hotkey) : ''],
+        ['focusHotkey', next.focusHotkey ? formatHotkey(next.focusHotkey) : ''],
+        ['autoStop', next.autoStop],
+        ['silenceMs', next.silenceMs],
+      ];
+      for (const [field, value] of ops) {
+        try {
+          const result = configForm.set(field, value);
+          if (result && typeof result.catch === 'function') result.catch((e) => warn('设置没写进 Host：' + e));
+        } catch (e) { warn('设置没写进 Host：' + e); }
+      }
+    }
+
     function writeSettings(next) {
+      settings = next;
       writeRaw(JSON.stringify(next));
+      pushToConfig(next);
+      notifySettings();
+    }
+
+    // 连上 Host 的设置命名空间；连上后以服务器值为准，本地一次迁移过去。
+    function bindConfigForm(ctx) {
+      try {
+        if (!ctx || typeof ctx.configForms?.get !== 'function') return;
+        configForm = ctx.configForms.get(CONFIG_NS);
+      } catch (e) { warn('设置命名空间没连上：' + e); return; }
+      if (!configForm) return;
+      const sync = () => {
+        let snapshot = null;
+        try { snapshot = configForm.getSnapshot(); } catch (e) { return; }
+        if (!snapshot || snapshot.status !== 'ready' || !snapshot.value) return;
+        const userLayer = snapshot.user && typeof snapshot.user === 'object' ? snapshot.user : {};
+        if (Object.keys(userLayer).length === 0) {
+          // 服务器还一条都没存过：把当前（本地/默认）设置推上去
+          pushToConfig(settings);
+          return;
+        }
+        settings = settingsFromConfig(snapshot.value);
+        writeRaw(JSON.stringify(settings));
+        notifySettings();
+      };
+      try { ctx.effect(() => configForm.subscribe(sync)); } catch (e) { configForm.subscribe(sync); }
+      sync();
     }
 
     // 把 {code,alt,...} 显示成 "Alt+V" / "Ctrl+Shift+Space"
@@ -122,6 +206,34 @@ window.__ModuleLoader__.load({
       if (h.meta) parts.push('Meta');
       parts.push(codeName(h.code));
       return parts.join('+');
+    }
+
+    // "Alt+V" / "Ctrl+Alt+Space" → { code, ctrl, alt, shift, meta }；'' 表示用户关掉了这个键
+    const NAME_TO_CODE = (() => {
+      const map = { space: 'Space', esc: 'Escape', escape: 'Escape', enter: 'Enter', tab: 'Tab', backspace: 'Backspace' };
+      for (const code of Object.keys(CODE_NAMES)) map[CODE_NAMES[code].toLowerCase()] = code;
+      return map;
+    })();
+
+    function parseHotkey(text, fallback) {
+      if (text === '') return null;
+      if (typeof text !== 'string' || !text.trim()) return fallback ? { ...fallback } : null;
+      const parts = text.split('+').map((part) => part.trim()).filter(Boolean);
+      const out = { code: '', ctrl: false, alt: false, shift: false, meta: false };
+      for (const part of parts) {
+        const lower = part.toLowerCase();
+        if (lower === 'ctrl' || lower === 'control') { out.ctrl = true; continue; }
+        if (lower === 'alt' || lower === 'option') { out.alt = true; continue; }
+        if (lower === 'shift') { out.shift = true; continue; }
+        if (lower === 'meta' || lower === 'cmd' || lower === 'command' || lower === 'win') { out.meta = true; continue; }
+        if (/^[a-z]$/i.test(part)) { out.code = 'Key' + part.toUpperCase(); continue; }
+        if (/^[0-9]$/.test(part)) { out.code = 'Digit' + part; continue; }
+        if (NAME_TO_CODE[lower]) { out.code = NAME_TO_CODE[lower]; continue; }
+        if (/^Key[A-Z]$|^Digit[0-9]$|^F[0-9]{1,2}$/.test(part)) { out.code = part; continue; }
+        return fallback ? { ...fallback } : null;
+      }
+      if (!out.code) return fallback ? { ...fallback } : null;
+      return out;
     }
 
     function matchesHotkey(e, h) {
@@ -445,6 +557,7 @@ window.__ModuleLoader__.load({
 
       return function VoiceHotkeySettings() {
         const [state, setState] = React.useState(readSettings);
+        React.useEffect(() => onChangeSettings(setState), []);
         const update = (patch) => setState((current) => {
           const next = { ...current, ...patch };
           writeSettings(next);
@@ -500,8 +613,8 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'vhk-val' }, seconds(state.silenceMs))))),
 
           h('p', { className: 'vhk-foot' },
-            t('设置存在这台浏览器里，改完立即生效；换浏览器会回到默认热键（功能照常可用）。',
-              'Settings are stored in this browser and apply immediately; another browser simply starts from the defaults.')));
+            t('设置保存在 DSH 服务端，换浏览器、换设备都是同一套；改完立即生效。',
+              'Settings live on the DSH host, so every browser and device shares them; changes apply immediately.')));
       };
     }
 
@@ -535,6 +648,8 @@ window.__ModuleLoader__.load({
         };
         if (ctx && typeof ctx.effect === 'function') ctx.effect(() => { install(); return dispose; });
         else install();
+
+        bindConfigForm(ctx);
 
         ensureStyles();
 

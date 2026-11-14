@@ -51,7 +51,7 @@ The dsh desktop app is an Electron shell around the same web UI, so the plugin w
 
 Two known differences, both handled:
 
-- `localStorage` can be blocked under `file://` or storage partitioning in Electron — settings then fall back to memory for the current session instead of throwing;
+- settings live on the dsh host, so Electron's storage limits do not apply; a local cache only bridges the moment before that channel is ready;
 - microphone permission is granted by the desktop app; if the first recording is silent, allow the mic in the OS privacy settings.
 
 ## Install
@@ -70,7 +70,7 @@ Reload the page. The defaults work right away (`Alt+V` to talk, `Ctrl+Alt+I` to 
 
 ## Settings
 
-Available both on the settings page and on the plugin's detail page, stored in `localStorage` (memory fallback on desktop), applied immediately:
+Available both on the settings page and on the plugin's detail page, stored **on the dsh host** (the profile's user-settings document) so every browser and device shares them, applied immediately:
 
 - **Voice input hotkey** — `Alt+V` by default. Must include `Ctrl` / `Alt` / `Meta` so it never swallows normal typing.
 - **Focus the composer** — `Ctrl+Alt+I` by default. The two hotkeys cannot be the same; a conflict is reported inline.

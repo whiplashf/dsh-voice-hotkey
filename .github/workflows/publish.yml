@@ -25,6 +25,11 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # Node 22 ships npm 10, which predates Trusted Publishing; OIDC exchange
+      # needs npm >= 11.5.1, otherwise the PUT goes out unauthenticated (E404).
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@11
+
       - name: Check the tag matches package.json
         run: |
           tag="${GITHUB_REF_NAME#v}"

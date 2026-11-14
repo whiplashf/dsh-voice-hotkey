@@ -1,88 +1,128 @@
-# dsh-voice-hotkey
+# dsh-voice-hotkey 🎤
 
-Minimal push-to-talk voice input for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh): **press a key, talk, stop talking — the text lands in the composer and Enter sends it.** No mouse on the way.
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-voice-hotkey"><img alt="npm version" src="https://img.shields.io/npm/v/dsh-voice-hotkey?label=npm&color=blue"></a>
+  <a href="https://www.npmjs.com/package/dsh-voice-hotkey"><img alt="npm monthly downloads" src="https://img.shields.io/npm/dm/dsh-voice-hotkey?label=downloads&color=brightgreen"></a>
+  <a href="https://github.com/whiplashf/dsh-voice-hotkey/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/whiplashf/dsh-voice-hotkey?color=orange"></a>
+  <a href="https://github.com/whiplashf/dsh-voice-hotkey"><img alt="stars" src="https://img.shields.io/github/stars/whiplashf/dsh-voice-hotkey?style=social"></a>
+  <img alt="platform" src="https://img.shields.io/badge/platform-DeepSeek%20Harness%20Web%20%2F%20Desktop-8A2BE2">
+  <img alt="deps" src="https://img.shields.io/badge/runtime%20deps-0-success">
+</p>
 
-Recording, transcription and writing into the draft are still done by the official Voice Input bundle. This plugin only presses its buttons for you, and fills three gaps it leaves open.
+**Press a key, talk, stop talking — the text lands in the composer, Enter sends it.** No mouse, no clicking the little microphone.
 
-[中文](README.md)
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) ships a Voice Input bundle, but it is missing the three things that decide whether voice input actually feels good: **no hotkey**, **you have to click stop yourself**, and **focus is lost after transcription, so Enter does nothing**. This plugin adds exactly those three. Recording, transcription and writing into the draft remain the official plugin's job — not a line of it is reimplemented.
 
-## Three things
+```
+Alt+V  →  speak  →  2 s of silence auto-stops  →  Enter
+   ↑                                              ↓
+hotkey starts                  text is already in the composer
+```
 
-| | |
-|---|---|
-| **Voice hotkey** | Default `Alt+V`, remappable. Tap to start, tap to stop; works anywhere on the page, no need to click the composer first. |
-| **Silence auto-stop** | Once speech is detected, N seconds of silence ends the recording. Adjustable `0.5–10 s` on a slider, or switch it off. |
-| **Focus the composer** | Default `Ctrl+Alt+I`, one key puts the caret back at the end of the composer. DSH has **no** such command of its own. |
+---
 
-## What other tools use to focus their input
+## Quick start (1 minute)
 
-| Tool | Shortcut | Why it can't be copied as-is |
-|---|---|---|
-| Cursor | `Ctrl+L` / `Cmd+L` | The browser address bar owns `Ctrl+L`, so it breaks on the web |
-| VS Code · GitHub Copilot Chat | `Ctrl+Alt+I` | Free everywhere, safe on the web |
-| VS Code · Claude Code | `Ctrl+Esc` / `Cmd+Esc` | On Windows this opens the Start menu |
-| **this plugin** | **`Ctrl+Alt+I`** | Matches Copilot; same on web and desktop |
+**Prerequisite**: the official **Voice Input** bundle is enabled (Plugins → Voice input → enable; it downloads the SenseVoice model on first use, ~231 MB). This plugin is its remote control — without it, nothing works.
 
-## Why focusing deserves its own key
+**Option A (GUI)**: Plugins → type `dsh-voice-hotkey` in the install box → install.
 
-The official voice plugin remembers the caret position **at the moment recording starts** and writes the transcript back there. So:
+**Option B (CLI)**:
 
-- pressing the hotkey inside the conversation puts the caret at the end of the composer first (otherwise the text has nowhere sensible to go);
-- but if you clicked elsewhere in the meantime — sidebar, plugins page, another window — the caret is gone and you need the mouse again.
-
-dsh ships no "focus the input" command, which is exactly where people get stuck. This plugin makes it a key: **press it anytime and the caret is back in the composer**, ready for `Enter`.
-
-## Turning a hotkey off
-
-Both hotkeys can be disabled:
-
-- click the key to start recording, then press `Esc` to clear it to **Not set** (`Backspace` / `Delete` work too).
-
-When a shortcut shows "Not set" that action is fully disabled — no listener, no key swallowed. A shortcut is only saved once you press a **regular key with `Ctrl`/`Alt`/`Meta`**; modifiers alone just show a hint.
-
-## Requirements
-
-- The official **Voice Input** bundle must be enabled. This plugin clicks its buttons; without it nothing happens.
-- A browser with microphone access. Audio still travels the official path to the dsh server; this plugin adds no network requests.
-
-## Desktop app
-
-The dsh desktop app is an Electron shell around the same web UI, so the plugin works there unchanged: hotkey, auto-stop and focus all live in the renderer process and need no extra permissions.
-
-Two known differences, both handled:
-
-- `localStorage` can be blocked under `file://` or storage partitioning in Electron — settings then fall back to memory for the current session instead of throwing;
-- microphone permission is granted by the desktop app; if the first recording is silent, allow the mic in the OS privacy settings.
-
-## Install
-
-```sh
+```bash
 dsh plugin --profile web add dsh-voice-hotkey
+# desktop app (Electron): use --profile desktop
 ```
 
-Or from a local checkout:
+**Restart DSH** afterwards (`dsh web` → restart the service; desktop → relaunch). Then:
 
-```sh
-dsh plugin --profile web add /path/to/dsh-voice-hotkey
-```
+1. Press **`Alt + V`** in the composer — recording starts;
+2. Speak. **Two seconds of silence** (configurable) stops recording and transcribes;
+3. The text appears in the composer with focus intact — press **`Enter`**.
 
-Reload the page. The defaults work right away (`Alt+V` to talk, `Ctrl+Alt+I` to focus); change them under **Settings → Voice hotkey**.
+Manual control also works: a **short tap** of `Alt+V` toggles; **holding it for 0.5 s and releasing** is "stop when I let go".
+
+## Hotkeys
+
+| Keys | What it does | Configurable |
+| --- | --- | --- |
+| `Alt + V` | start / stop recording | yes |
+| `Ctrl + Alt + I` | focus the composer (dsh has no such command) | yes, can be disabled |
+| `Esc` (while recording) | cancel this take | — |
+
+`Ctrl + Alt + I` follows GitHub Copilot Chat. Cursor's `Ctrl+L` is swallowed by the address bar in a browser, and Claude Code's `Ctrl+Esc` is the Start menu on Windows — neither survives here.
 
 ## Settings
 
-Available both on the settings page and on the plugin's detail page, stored in `localStorage` (memory fallback on desktop), applied immediately:
+**Settings → Voice hotkey** (or Plugins → installed → dsh-voice-hotkey → bottom of the detail page):
 
-- **Voice input hotkey** — `Alt+V` by default. Must include `Ctrl` / `Alt` / `Meta` so it never swallows normal typing.
-- **Focus the composer** — `Ctrl+Alt+I` by default. The two hotkeys cannot be the same; a conflict is reported inline.
-- **Stop automatically when I stop talking** — off means pure manual mode: press the hotkey again to finish.
-- **Silence before stopping** — `0.5–10 s` slider.
+| Item | Default | Notes |
+| --- | --- | --- |
+| Voice hotkey | `Alt+V` | click the key chip to re-record; `Esc` clears it (disables the hotkey) |
+| Focus hotkey | `Ctrl+Alt+I` | same; can also be cleared |
+| Auto-stop on silence | on | off = stop manually with `Alt+V` |
+| Silence threshold | 2.0 s | 0.5–10 s in 250 ms steps |
 
-## Limits
+Settings live in this browser's `localStorage` (falling back to memory on desktop when unavailable). They apply immediately. A different browser, private window or cleared site data resets them to defaults — the plugin still works, just with default keys. dsh's own settings are per-browser too.
 
-- Silence detection is energy-based, not semantic: pausing longer than the threshold ends the recording.
-- The threshold adapts to ambient noise; in a loud room, hold-to-talk is steadier.
-- No live/streaming captions — the official transcription returns the whole utterance at once.
+## What it actually does
+
+| | Official Voice Input | This plugin |
+| --- | --- | --- |
+| recording / transcription | ✅ | reuses it, no reimplementation |
+| hotkey to start | ❌ click the mic | ✅ `Alt+V` |
+| auto-stop on silence | ❌ click "Stop and transcribe" | ✅ local energy VAD |
+| Enter right after | ❌ focus is lost | ✅ composer focused before recording |
+| extra network requests | — | ✅ none |
+| runtime dependencies | — | ✅ none |
+
+The trick is deliberately small: **find the official buttons and click them for you** (`aria-label` = `开始录音` / `Start recording`, `停止并识别` / `Stop and transcribe`, `重新录音` / `Record again`), plus a `getUserMedia` energy meter for silence detection. It never touches recording, transcription or the dsh core, so official upgrades rarely break it.
+
+## Compatibility
+
+- **dsh web** and the **dsh desktop app** (Electron) — same client bundle; only DOM, `localStorage` and `navigator.mediaDevices`.
+- **Browsers**: microphone permission required. Non-`https`, non-`localhost` pages cannot get a mic — browser rule, not ours.
+- **dsh version**: peer `@deepseek-ai/dsh-client-ui-conversation` `^0.2.0-rc.1 || ^0.2.2-0` (optional).
+
+## Known limits
+
+- **Input only**: no wake word, no always-on mic, no speech output, no live (streaming) captions — the official transcription is one-shot.
+- **Composer only**: it types into dsh's composer, not into other applications.
+- **Accuracy is the official model's**: SenseVoice-Small makes homophone mistakes; skim before sending.
+- **Hotkey clashes**: if `Alt+V` is taken by another app, record another combo (dsh already uses `Ctrl+Alt` + `KeyA/B/D/F/G/K/N/O/P`).
+
+## FAQ
+
+**`Alt+V` does nothing.** Check that the Voice Input bundle is enabled and its model is ready, and that the page has focus. Another voice plugin (e.g. `dsh-voice-prompt-enhancer`) grabbing the same hotkey will also break it.
+
+**It never stops.** Noisy rooms confuse the VAD — raise the silence threshold or turn auto-stop off.
+
+**My settings reset in another browser.** By design; see Settings.
+
+**Does it upload audio?** No new requests. Audio still goes through the official path to your own dsh server.
+
+## Development
+
+```bash
+git clone https://github.com/whiplashf/dsh-voice-hotkey
+cd dsh-voice-hotkey
+dsh plugin --profile web add "$PWD"   # install as a local link
+```
+
+Edit `client.js` and refresh the page; `index.js` is the (currently empty) host half and needs a restart.
+
+```
+client.js        # everything: hotkeys, VAD, clicking the official buttons, settings panel
+index.js         # host half (empty for now)
+cordis.patch.yml # inserts the plugin row into the profile
+locale/{zh,en}   # strings
+docs/DETAIL.md   # deeper implementation notes
+```
 
 ## License
 
-MIT
+MIT © whiplashf
+
+---
+
+[中文](README.md)

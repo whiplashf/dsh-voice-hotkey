@@ -1,88 +1,90 @@
 # dsh-voice-hotkey
 
-Minimal push-to-talk voice input for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh): **press a key, talk, stop talking — the text lands in the composer and Enter sends it.** No mouse on the way.
+给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的极简语音输入：**按一下键说话，说完自动停，文字落在输入框，回车就发** —— 全程不碰鼠标。
 
-Recording, transcription and writing into the draft are still done by the official Voice Input bundle. This plugin only presses its buttons for you, and fills three gaps it leaves open.
+录音、转写、写回草稿仍然是官方「语音输入」插件在做；本插件只负责替你去按它的按钮，并补上它没有的三件事。
 
-[中文](README.zh.md)
+[English](README.en.md)
 
-## Three things
+## 三个能力
 
 | | |
 |---|---|
-| **Voice hotkey** | Default `Alt+V`, remappable. Tap to start, tap to stop; works anywhere on the page, no need to click the composer first. |
-| **Silence auto-stop** | Once speech is detected, N seconds of silence ends the recording. Adjustable `0.5–10 s` on a slider, or switch it off. |
-| **Focus the composer** | Default `Ctrl+Alt+I`, one key puts the caret back at the end of the composer. DSH has **no** such command of its own. |
+| **语音热键** | 默认 `Alt+V`，可改成任意组合键。轻按开始、再按停止；页面任意位置生效，不用先点输入框。 |
+| **静音自动停** | 确认听到说话后，连续安静 N 秒自动停。`0.5–10 秒`无级可调，也能整个关掉。 |
+| **聚焦输入框** | 默认 `Ctrl+Alt+I`，一键把光标送回输入框末尾。DSH 自己**没有**这个命令。 |
 
-## What other tools use to focus their input
+## 主流工具用哪个键「聚焦输入框」
 
-| Tool | Shortcut | Why it can't be copied as-is |
+| 工具 | 快捷键 | 拿来直接用的问题 |
 |---|---|---|
-| Cursor | `Ctrl+L` / `Cmd+L` | The browser address bar owns `Ctrl+L`, so it breaks on the web |
-| VS Code · GitHub Copilot Chat | `Ctrl+Alt+I` | Free everywhere, safe on the web |
-| VS Code · Claude Code | `Ctrl+Esc` / `Cmd+Esc` | On Windows this opens the Start menu |
-| **this plugin** | **`Ctrl+Alt+I`** | Matches Copilot; same on web and desktop |
+| Cursor | `Ctrl+L` / `Cmd+L` | 浏览器里被地址栏抢走，网页版用不了 |
+| VS Code · GitHub Copilot Chat | `Ctrl+Alt+I` | 无冲突，网页版也安全 |
+| VS Code · Claude Code | `Ctrl+Esc` / `Cmd+Esc` | Windows 上是「开始菜单」，被系统吃掉 |
+| **本插件** | **`Ctrl+Alt+I`** | 对齐 Copilot，Web 与桌面版一致 |
 
-## Why focusing deserves its own key
+所以默认值选了 `Ctrl+Alt+I`：既是主流习惯，又不会在浏览器或 Windows 上被系统截胡。不喜欢就在设置里重录。
 
-The official voice plugin remembers the caret position **at the moment recording starts** and writes the transcript back there. So:
+## 为什么「聚焦输入框」值得单独一个键
 
-- pressing the hotkey inside the conversation puts the caret at the end of the composer first (otherwise the text has nowhere sensible to go);
-- but if you clicked elsewhere in the meantime — sidebar, plugins page, another window — the caret is gone and you need the mouse again.
+官方语音插件在**开始录音的那一刻**记下光标位置，转写完把文字写回那里。所以：
 
-dsh ships no "focus the input" command, which is exactly where people get stuck. This plugin makes it a key: **press it anytime and the caret is back in the composer**, ready for `Enter`.
+- 在对话页里按热键，我们会先把光标放到输入框末尾（否则文字可能插到别处，或者根本没地方插）；
+- 但如果你中途点了别的地方（侧边栏、插件页、另一个窗口），光标就不在输入框里了 —— 想再发消息得先用鼠标点一下。
 
-## Turning a hotkey off
+DSH 目前没有「把焦点扔进输入框」的快捷键，于是很多人就卡在这一步。本插件把它做成一个独立热键：**任何时候按一下，光标回到输入框末尾**，接着 `Enter` 发送。
 
-Both hotkeys can be disabled:
+## 不想要某个热键
 
-- click the key to start recording, then press `Esc` to clear it to **Not set** (`Backspace` / `Delete` work too).
+两个热键都可以关掉：
 
-When a shortcut shows "Not set" that action is fully disabled — no listener, no key swallowed. A shortcut is only saved once you press a **regular key with `Ctrl`/`Alt`/`Meta`**; modifiers alone just show a hint.
+- 点一下键位进入录制，按 `Esc` 直接清成「未设置」（`Backspace` / `Delete` 也可以）。
 
-## Requirements
+显示「未设置」时该功能整个不生效 —— 不会注册监听，也不会和别的软件抢键。注意：只有按下**带 `Ctrl`/`Alt`/`Meta` 的普通键**才算设置成功，只按修饰键只会提示、不会保存。
 
-- The official **Voice Input** bundle must be enabled. This plugin clicks its buttons; without it nothing happens.
-- A browser with microphone access. Audio still travels the official path to the dsh server; this plugin adds no network requests.
+## 前置条件
 
-## Desktop app
+- **必须启用官方「语音输入」插件**。本插件驱动的是它的按钮，少了它热键没有反应。
+- 支持麦克风的浏览器。音频仍走官方链路发到 dsh 服务器，本插件不新增任何网络请求。
 
-The dsh desktop app is an Electron shell around the same web UI, so the plugin works there unchanged: hotkey, auto-stop and focus all live in the renderer process and need no extra permissions.
+## 桌面版
 
-Two known differences, both handled:
+dsh 的桌面版是 Electron 壳子，跑的是同一份 Web 界面，所以本插件在桌面版里同样工作：热键、自动停、聚焦都在渲染进程里，不需要额外权限。
 
-- `localStorage` can be blocked under `file://` or storage partitioning in Electron — settings then fall back to memory for the current session instead of throwing;
-- microphone permission is granted by the desktop app; if the first recording is silent, allow the mic in the OS privacy settings.
+两处已知差异，都已经做了兜底：
 
-## Install
+- 桌面版里 `localStorage` 可能被 `file://` 或分区策略拦住 —— 设置会退化到内存里，当次会话内有效，不会崩；
+- 麦克风权限由桌面应用授予，第一次用如果没声音，去系统设置里把麦克风权限给它。
+
+## 安装
 
 ```sh
 dsh plugin --profile web add dsh-voice-hotkey
 ```
 
-Or from a local checkout:
+从本地目录装也可以：
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-voice-hotkey
 ```
 
-Reload the page. The defaults work right away (`Alt+V` to talk, `Ctrl+Alt+I` to focus); change them under **Settings → Voice hotkey**.
+装完刷新页面。默认热键就能用（`Alt+V` 说话，`Ctrl+Alt+I` 聚焦），需要改的话在「设置 → 语音快捷键」里录。
 
-## Settings
+## 设置
 
-Available both on the settings page and on the plugin's detail page, stored in `localStorage` (memory fallback on desktop), applied immediately:
+设置页和插件详情页里都能改，存在浏览器 `localStorage`（桌面版不可用时退回内存），改完立即生效：
 
-- **Voice input hotkey** — `Alt+V` by default. Must include `Ctrl` / `Alt` / `Meta` so it never swallows normal typing.
-- **Focus the composer** — `Ctrl+Alt+I` by default. The two hotkeys cannot be the same; a conflict is reported inline.
-- **Stop automatically when I stop talking** — off means pure manual mode: press the hotkey again to finish.
-- **Silence before stopping** — `0.5–10 s` slider.
+- **语音输入热键** —— 默认 `Alt+V`。必须带 `Ctrl` / `Alt` / `Meta` 修饰键，避免劫持正常打字。
+- **聚焦输入框热键** —— 默认 `Ctrl+Alt+I`。两个热键不能撞车，撞了会提示换一个。
+- **说完自动结束录音** —— 关掉就是纯手动模式，自己再按一次热键。
+- **停顿多久算说完** —— `0.5–10 秒` 滑块，无级调节。
 
-## Limits
+## 注意与边界
 
-- Silence detection is energy-based, not semantic: pausing longer than the threshold ends the recording.
-- The threshold adapts to ambient noise; in a loud room, hold-to-talk is steadier.
-- No live/streaming captions — the official transcription returns the whole utterance at once.
+- 静音判定看音量包络，不看语义；说话中间停顿超过设定时长会被判为说完了。
+- 阈值会自适应环境底噪；环境很吵时，用「按住说话、松手停」更稳。
+- 不支持「边说边出字」—— 官方识别是整段返回的。
 
-## License
+## 许可
 
 MIT

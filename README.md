@@ -1,26 +1,59 @@
 # dsh-voice-hotkey
 
-Minimal push-to-talk voice input for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
+Minimal push-to-talk voice input for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh): **press a key, talk, stop talking — the text lands in the composer and Enter sends it.** No mouse on the way.
 
-dsh ships a microphone button. This plugin gives it a keyboard: **`Alt+V` starts recording, silence stops it, and what you said lands in the composer with the caret still there** — so `Enter` sends it. No mouse involved.
+Recording, transcription and writing into the draft are still done by the official Voice Input bundle. This plugin only presses its buttons for you, and fills three gaps it leaves open.
 
-It is deliberately small: recording, transcription and text insertion stay in the official Voice Input bundle. This plugin only presses that bundle's buttons for you and adds the two things it does not have — a hotkey and a silence cutoff.
+[中文](README.zh.md)
 
-[中文说明](README.zh.md)
-
-## What it does
+## Three things
 
 | | |
 |---|---|
-| **Hotkey** | `Alt+V` — tap to start, tap again to stop. Works anywhere on the page, no need to click the composer first. |
-| **Push to talk** | Hold `Alt+V` for more than 0.5 s, speak, and release to stop immediately — no waiting for silence. |
-| **Silence stop** | After speech is detected, N seconds of quiet (default 2 s) stops the recording for you. Configurable 1–5 s, or switch it off entirely. |
-| **Focus** | Before recording starts, the caret is put back at the end of the composer, so the transcript goes there and `Enter` sends it. |
+| **Voice hotkey** | Default `Alt+V`, remappable. Tap to start, tap to stop; works anywhere on the page, no need to click the composer first. |
+| **Silence auto-stop** | Once speech is detected, N seconds of silence ends the recording. Adjustable `0.5–10 s` on a slider, or switch it off. |
+| **Focus the composer** | Default `Ctrl+Alt+I`, one key puts the caret back at the end of the composer. DSH has **no** such command of its own. |
+
+## What other tools use to focus their input
+
+| Tool | Shortcut | Why it can't be copied as-is |
+|---|---|---|
+| Cursor | `Ctrl+L` / `Cmd+L` | The browser address bar owns `Ctrl+L`, so it breaks on the web |
+| VS Code · GitHub Copilot Chat | `Ctrl+Alt+I` | Free everywhere, safe on the web |
+| VS Code · Claude Code | `Ctrl+Esc` / `Cmd+Esc` | On Windows this opens the Start menu |
+| **this plugin** | **`Ctrl+Alt+I`** | Matches Copilot; same on web and desktop |
+
+## Why focusing deserves its own key
+
+The official voice plugin remembers the caret position **at the moment recording starts** and writes the transcript back there. So:
+
+- pressing the hotkey inside the conversation puts the caret at the end of the composer first (otherwise the text has nowhere sensible to go);
+- but if you clicked elsewhere in the meantime — sidebar, plugins page, another window — the caret is gone and you need the mouse again.
+
+dsh ships no "focus the input" command, which is exactly where people get stuck. This plugin makes it a key: **press it anytime and the caret is back in the composer**, ready for `Enter`.
+
+## Turning a hotkey off
+
+Both hotkeys can be disabled:
+
+- while recording a shortcut, press `Backspace` / `Delete` to clear it to **Not set**;
+- or click the small **Clear** button next to the key.
+
+When a shortcut shows "Not set" that action is fully disabled — no listener, no key swallowed. `Esc` cancels recording and keeps the previous value, like most key-capture UIs.
 
 ## Requirements
 
-- **The official Voice Input bundle must be enabled** (`语音输入` in Plugins). This plugin drives its buttons; without it the hotkey does nothing.
-- Desktop browser with microphone permission. The audio is recorded in the browser and posted to the dsh server exactly as the official plugin does — this plugin adds no network path of its own.
+- The official **Voice Input** bundle must be enabled. This plugin clicks its buttons; without it nothing happens.
+- A browser with microphone access. Audio still travels the official path to the dsh server; this plugin adds no network requests.
+
+## Desktop app
+
+The dsh desktop app is an Electron shell around the same web UI, so the plugin works there unchanged: hotkey, auto-stop and focus all live in the renderer process and need no extra permissions.
+
+Two known differences, both handled:
+
+- `localStorage` can be blocked under `file://` or storage partitioning in Electron — settings then fall back to memory for the current session instead of throwing;
+- microphone permission is granted by the desktop app; if the first recording is silent, allow the mic in the OS privacy settings.
 
 ## Install
 
@@ -28,26 +61,28 @@ It is deliberately small: recording, transcription and text insertion stay in th
 dsh plugin --profile web add dsh-voice-hotkey
 ```
 
-Or from a local checkout, add the directory itself:
+Or from a local checkout:
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-voice-hotkey
 ```
 
-Then reload the page. The hotkey needs no extra setup; tuning lives in **Plugins → Voice hotkey**.
+Reload the page. The defaults work right away (`Alt+V` to talk, `Ctrl+Alt+I` to focus); change them under **Settings → Voice hotkey**.
 
 ## Settings
 
-Stored in the browser's `localStorage`, applied immediately:
+Available both on the settings page and on the plugin's detail page, stored in `localStorage` (memory fallback on desktop), applied immediately:
 
-- **Stop automatically after silence** — off means manual mode: you stop with `Alt+V` yourself.
-- **Silence before stopping** — 1 s to 5 s.
+- **Voice input hotkey** — `Alt+V` by default. Must include `Ctrl` / `Alt` / `Meta` so it never swallows normal typing.
+- **Focus the composer** — `Ctrl+Alt+I` by default. The two hotkeys cannot be the same; a conflict is reported inline.
+- **Stop automatically when I stop talking** — off means pure manual mode: press the hotkey again to finish.
+- **Silence before stopping** — `0.5–10 s` slider.
 
-## Notes and limits
+## Limits
 
-- Silence detection uses the microphone's energy envelope, not semantics. A pause longer than the setting ends the recording.
-- Noise thresholds self-calibrate to the room; in very noisy rooms, hold-to-talk is the reliable mode.
-- Streaming ("words appear while you speak") is not supported — the official transcriber returns the whole utterance at once.
+- Silence detection is energy-based, not semantic: pausing longer than the threshold ends the recording.
+- The threshold adapts to ambient noise; in a loud room, hold-to-talk is steadier.
+- No live/streaming captions — the official transcription returns the whole utterance at once.
 
 ## License
 

@@ -1,6 +1,6 @@
 /**
  * 语音快捷键（voice-hotkey）—— 只做两件事：
- *   1. 给官方「语音输入」按钮绑一个全局热键（默认 Alt+V，轻按开/关，长按≥500ms 松手即停）
+ *   1. 给官方「语音输入」按钮绑一个可配置的全局热键（默认 Alt+V，轻按开/关，长按≥500ms 松手即停）
  *   2. 静音自动停（默认说完静音 2 秒自动点「停止并识别」）
  *
  * 不重写录音链路：开始/停止都是派发点击官方按钮，转写与写回仍由官方插件负责。
@@ -11,27 +11,125 @@ window.__ModuleLoader__.load({
   factory(require) {
     // ── 设置（存本浏览器 localStorage，改完即时生效）─────────────────────────
     const STORE_KEY = 'dsh-voice-hotkey:settings';
-    const DEFAULTS = { autoStop: true, silenceMs: 2000 };
-    const SILENCE_CHOICES = [1000, 1500, 2000, 2500, 3000, 4000, 5000];
+    const DEFAULT_HOTKEY = { code: 'KeyV', ctrl: false, alt: true, shift: false, meta: false };
+    // 默认对齐主流：Copilot Chat 用 Ctrl+Alt+I 打开/聚焦聊天，Cursor 用 Ctrl+L（浏览器里被地址栏占用）、
+    // Claude Code 用 Ctrl+Esc（Windows 上是开始菜单），所以 Web 上只有 Ctrl+Alt+I 是既主流又安全的。
+    const DEFAULT_FOCUS_HOTKEY = { code: 'KeyI', ctrl: true, alt: true, shift: false, meta: false };
+    const DEFAULTS = {
+      autoStop: true,
+      silenceMs: 2000,
+      hotkey: DEFAULT_HOTKEY,
+      focusHotkey: DEFAULT_FOCUS_HOTKEY,
+    };
+    const SILENCE_MIN = 500;
+    const SILENCE_MAX = 10000;
+    const SILENCE_STEP = 250;
+
+    // 只允许「修饰键 + 一个普通键」的组合，避免热键抢走正常打字
+    const MODIFIER_CODES = ['AltLeft', 'AltRight', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'MetaLeft', 'MetaRight', 'OSLeft', 'OSRight'];
+
+    function cleanHotkey(value, fallback) {
+      const base = fallback || DEFAULT_HOTKEY;
+      // null 是「用户主动关掉这个快捷键」，和「没设置过」要区分开
+      if (value === null) return null;
+      if (!value || typeof value !== 'object') return { ...base };
+      if (typeof value.code !== 'string' || !/^[A-Za-z0-9]+$/.test(value.code)) return { ...base };
+      const next = {
+        code: value.code,
+        ctrl: !!value.ctrl,
+        alt: !!value.alt,
+        shift: !!value.shift,
+        meta: !!value.meta,
+      };
+      // 没有 Ctrl/Alt/Meta 的组合会抢走正常输入，退回默认
+      if (!next.ctrl && !next.alt && !next.meta) return { ...base };
+      return next;
+    }
+
+    function sameHotkey(a, b) {
+      return !!a && !!b && a.code === b.code
+        && !!a.ctrl === !!b.ctrl && !!a.alt === !!b.alt
+        && !!a.shift === !!b.shift && !!a.meta === !!b.meta;
+    }
+
+    function clampSilence(ms) {
+      const n = Number(ms);
+      if (!isFinite(n)) return DEFAULTS.silenceMs;
+      const stepped = Math.round(n / SILENCE_STEP) * SILENCE_STEP;
+      return Math.min(SILENCE_MAX, Math.max(SILENCE_MIN, stepped));
+    }
+
+    // 桌面版（Electron）里 localStorage 可能被 file:// / 分区策略拦住，拦住了就退回内存存一份，
+    // 至少当前会话里设置还有效，不会因为读不到而崩掉。
+    let memoryRaw = null;
+    function readRaw() {
+      try {
+        const v = window.localStorage?.getItem(STORE_KEY);
+        if (typeof v === 'string' && v) return v;
+      } catch (e) { /* 落到内存兜底 */ }
+      return memoryRaw;
+    }
+    function writeRaw(value) {
+      memoryRaw = value;
+      try { window.localStorage?.setItem(STORE_KEY, value); } catch (e) { /* 只存内存 */ }
+    }
 
     function readSettings() {
       try {
-        const raw = window.localStorage?.getItem(STORE_KEY);
-        if (!raw) return { ...DEFAULTS };
+        const raw = readRaw();
+        if (!raw) return { ...DEFAULTS, hotkey: { ...DEFAULT_HOTKEY }, focusHotkey: { ...DEFAULT_FOCUS_HOTKEY } };
         const parsed = JSON.parse(raw);
+        const hotkey = cleanHotkey(parsed.hotkey, DEFAULT_HOTKEY);
+        let focusHotkey = cleanHotkey(parsed.focusHotkey, DEFAULT_FOCUS_HOTKEY);
+        // 两个功能撞到同一个组合时，聚焦那个退回默认，避免互相打架
+        if (hotkey && focusHotkey && sameHotkey(hotkey, focusHotkey)) {
+          focusHotkey = sameHotkey(DEFAULT_FOCUS_HOTKEY, hotkey) ? { code: 'KeyB', ctrl: false, alt: true, shift: false, meta: false } : { ...DEFAULT_FOCUS_HOTKEY };
+        }
         return {
           autoStop: typeof parsed.autoStop === 'boolean' ? parsed.autoStop : DEFAULTS.autoStop,
-          silenceMs: SILENCE_CHOICES.indexOf(Number(parsed.silenceMs)) >= 0 ? Number(parsed.silenceMs) : DEFAULTS.silenceMs,
+          silenceMs: clampSilence(parsed.silenceMs),
+          hotkey,
+          focusHotkey,
         };
-      } catch (e) { return { ...DEFAULTS }; }
+      } catch (e) { return { ...DEFAULTS, hotkey: { ...DEFAULT_HOTKEY }, focusHotkey: { ...DEFAULT_FOCUS_HOTKEY } }; }
     }
 
     function writeSettings(next) {
-      try { window.localStorage?.setItem(STORE_KEY, JSON.stringify(next)); } catch (e) { /* 忽略 */ }
+      writeRaw(JSON.stringify(next));
+    }
+
+    // 把 {code,alt,...} 显示成 "Alt+V" / "Ctrl+Shift+Space"
+    const CODE_NAMES = {
+      Space: 'Space', Escape: 'Esc', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace',
+      CapsLock: 'CapsLock', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+      Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\',
+      Semicolon: ';', Quote: "'", Backquote: '`', Comma: ',', Period: '.', Slash: '/',
+    };
+
+    function codeName(code) {
+      if (CODE_NAMES[code]) return CODE_NAMES[code];
+      if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+      if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+      if (/^Numpad[0-9]$/.test(code)) return 'Num' + code.slice(6);
+      return code;
+    }
+
+    function formatHotkey(h) {
+      const parts = [];
+      if (h.ctrl) parts.push('Ctrl');
+      if (h.alt) parts.push('Alt');
+      if (h.shift) parts.push('Shift');
+      if (h.meta) parts.push('Meta');
+      parts.push(codeName(h.code));
+      return parts.join('+');
+    }
+
+    function matchesHotkey(e, h) {
+      if (e.code !== h.code) return false;
+      return e.ctrlKey === h.ctrl && e.altKey === h.alt && e.shiftKey === h.shift && e.metaKey === h.meta;
     }
 
     // ── 常量 ────────────────────────────────────────────────────────────────
-    const HOTKEY_CODE = 'KeyV';     // 按住 Alt + V
     const LONG_PRESS_MS = 500;      // 按住超过这个时长，松手即停
     const POLL_MS = 100;            // VAD 轮询粒度
     const ONSET_RUN = 3;            // 连续 3 帧有声才算「开始说话」
@@ -186,10 +284,21 @@ window.__ModuleLoader__.load({
 
     // ── 热键 ────────────────────────────────────────────────────────────────
     let pressAt = 0;
+    // 设置面板正在录制新热键时，这个函数不为 null：此时全局热键让路
+    let captureKey = null;
 
     function onKeyDown(e) {
-      if (e.repeat || e.code !== HOTKEY_CODE) return;
-      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (captureKey) return;
+      if (e.repeat) return;
+      const settings = readSettings();
+      // 聚焦输入框：DSH 自己没注册这个命令，这里补上（对任何界面都有效）
+      if (settings.focusHotkey && matchesHotkey(e, settings.focusHotkey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        focusComposer();
+        return;
+      }
+      if (!settings.hotkey || !matchesHotkey(e, settings.hotkey)) return;
       e.preventDefault();
       e.stopPropagation();
       if (recording()) { pressAt = 0; stopRecording(); stopVad(); return; }
@@ -198,43 +307,222 @@ window.__ModuleLoader__.load({
     }
 
     function onKeyUp(e) {
-      if (e.code !== HOTKEY_CODE || !pressAt) return;
+      if (captureKey || !pressAt) return;
+      const hotkey = readSettings().hotkey;
+      if (!hotkey || e.code !== hotkey.code) return;
       const held = Date.now() - pressAt;
       pressAt = 0;
       if (held >= LONG_PRESS_MS) { stopRecording(); stopVad(); }
     }
 
-    // ── 设置面板（挂在「插件 → 语音快捷键」详情页里）──────────────────────────
+    // ── 样式（跟 DSH 主题变量走，深浅色都自适应）────────────────────────────
+    const CSS_ID = 'dsh-voice-hotkey-styles';
+
+    function ensureStyles() {
+      try {
+        if (document.getElementById(CSS_ID)) return;
+        const style = document.createElement('style');
+        style.id = CSS_ID;
+        style.textContent = `
+.vhk-wrap{display:flex;flex-direction:column;gap:6px;max-width:700px;color:var(--dsw-alias-label-primary,#e8e8e8)}
+.vhk-head{display:flex;flex-direction:column;gap:5px;margin:0 0 6px}
+.vhk-title{margin:0;font-size:15px;font-weight:600;line-height:1.4}
+.vhk-sub{margin:0;font-size:12.5px;line-height:1.65;color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.9))}
+.vhk-group{margin:12px 0 6px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary,rgba(180,180,180,.9))}
+.vhk-card{border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));background:var(--dsw-alias-bg-layer-3,rgba(128,128,128,.06));border-radius:10px;overflow:hidden}
+.vhk-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 14px;min-height:54px;box-sizing:border-box}
+.vhk-row+.vhk-row{border-top:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.25))}
+.vhk-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.vhk-label{font-size:13.5px;line-height:1.35}
+.vhk-hint{font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.9))}
+.vhk-kbd{flex:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;
+  padding:6px 13px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.45));
+  background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.10));color:inherit;cursor:pointer;white-space:nowrap;
+  transition:border-color .15s ease,background .15s ease}
+.vhk-kbd:hover{border-color:var(--dsw-alias-state-business-primary,#4f9cf9)}
+.vhk-kbd.vhk-capturing{border-color:var(--dsw-alias-state-business-primary,#4f9cf9);
+  background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 14%,transparent);
+  color:var(--dsw-alias-state-business-primary,#4f9cf9)}
+.vhk-switch{flex:none;position:relative;width:36px;height:21px;border-radius:999px;padding:0;cursor:pointer;
+  border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.45));
+  background:var(--dsw-alias-bg-layer-1,rgba(128,128,128,.22));transition:background .15s ease,border-color .15s ease}
+.vhk-switch.vhk-on{background:var(--dsw-alias-state-business-primary,#4f9cf9);border-color:transparent}
+.vhk-knob{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;
+  transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.vhk-switch.vhk-on .vhk-knob{transform:translateX(15px)}
+.vhk-right{display:flex;align-items:center;gap:12px;flex:none}
+.vhk-range{width:190px;accent-color:var(--dsw-alias-state-business-primary,#4f9cf9);cursor:pointer}
+.vhk-val{min-width:62px;text-align:right;font-size:12.5px;font-variant-numeric:tabular-nums;
+  color:var(--dsw-alias-label-secondary,rgba(180,180,180,.95))}
+.vhk-right{display:flex;align-items:center;gap:6px;flex:none}
+.vhk-kbd.vhk-off{color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.9));border-style:dashed}
+.vhk-clear{flex:none;padding:4px 8px;border-radius:6px;border:1px solid transparent;background:transparent;
+  color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.9));font:inherit;font-size:12px;cursor:pointer}
+.vhk-clear:hover{color:var(--dsw-alias-label-primary,#e8e8e8);background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.14))}
+.vhk-foot{margin:12px 0 2px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.85))}
+.vhk-disabled{opacity:.45;pointer-events:none}
+`;
+        document.head.appendChild(style);
+      } catch (e) { warn('样式没注入：' + e); }
+    }
+
+    // ── 设置面板 ────────────────────────────────────────────────────────────
+    // 同一个组件挂两处：设置页的「语音快捷键」分区，以及插件详情页的配置区。
     function settingsPanel(React) {
       const en = String(navigator.language || '').toLowerCase().startsWith('en');
-      return function VoicePttSettings() {
+      const t = (zh, english) => (en ? english : zh);
+      const h = React.createElement;
+
+      function Switch(props) {
+        return h('button', {
+          type: 'button',
+          role: 'switch',
+          'aria-checked': props.checked ? 'true' : 'false',
+          className: 'vhk-switch' + (props.checked ? ' vhk-on' : ''),
+          onClick: () => props.onChange(!props.checked),
+        }, h('span', { className: 'vhk-knob' }));
+      }
+
+      // 一行「标签 + 说明 + 可录制的键位」
+      function HotkeyRow(props) {
+        const [capturing, setCapturing] = React.useState(false);
+        const [hint, setHint] = React.useState('');
+        React.useEffect(() => {
+          if (!capturing) return undefined;
+          const onKey = (e) => {
+            if (e.repeat) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.code === 'Escape') { setCapturing(false); setHint(''); return; }
+            if ((e.code === 'Backspace' || e.code === 'Delete') && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+              props.onChange(null);
+              setCapturing(false);
+              setHint('');
+              return;
+            }
+            if (MODIFIER_CODES.indexOf(e.code) >= 0) {
+              setHint(t('继续按一个普通键，组合成快捷键', 'Now press a regular key to complete the shortcut'));
+              return;
+            }
+            const next = { code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey };
+            if (!next.ctrl && !next.alt && !next.meta) {
+              setHint(t('必须带 Ctrl、Alt 或 Meta，否则会抢走正常打字', 'Must include Ctrl, Alt or Meta, otherwise it would swallow normal typing'));
+              return;
+            }
+            if (props.conflict && sameHotkey(next, props.conflict)) {
+              setHint(t('这个组合已经用在另一个功能上了，换一个', 'That combination already drives the other action — pick another'));
+              return;
+            }
+            props.onChange(next);
+            setCapturing(false);
+            setHint('');
+          };
+          captureKey = onKey;
+          window.addEventListener('keydown', onKey, true);
+          return () => {
+            captureKey = null;
+            window.removeEventListener('keydown', onKey, true);
+          };
+        }, [capturing]);
+
+        const value = props.value;
+        const offHint = t('已关闭：这个快捷键目前不起作用', 'Off: this shortcut does nothing right now');
+        return h('div', { className: 'vhk-row' },
+          h('div', { className: 'vhk-text' },
+            h('div', { className: 'vhk-label' }, props.label),
+            h('div', { className: 'vhk-hint' }, hint || (value ? props.hint : offHint))),
+          h('div', { className: 'vhk-right' },
+            h('button', {
+              type: 'button',
+              className: 'vhk-kbd' + (capturing ? ' vhk-capturing' : '') + (value ? '' : ' vhk-off'),
+              onClick: () => { setHint(''); setCapturing((v) => !v); },
+            }, capturing
+              ? t('请按组合键…（Esc 取消，Backspace 清除）', 'Press keys… (Esc cancels, Backspace clears)')
+              : (value ? formatHotkey(value) : t('未设置', 'Not set'))),
+            value && !capturing
+              ? h('button', {
+                type: 'button',
+                className: 'vhk-clear',
+                title: t('清除这个快捷键', 'Clear this shortcut'),
+                onClick: () => { setHint(''); props.onChange(null); },
+              }, t('清除', 'Clear'))
+              : null));
+      }
+
+      return function VoiceHotkeySettings() {
         const [state, setState] = React.useState(readSettings);
         const update = (patch) => setState((current) => {
           const next = { ...current, ...patch };
           writeSettings(next);
           return next;
         });
-        const row = { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' };
-        const seconds = (ms) => String(ms / 1000) + (en ? ' s' : ' 秒');
-        return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 12, padding: '2px 0' } },
-          React.createElement('label', { style: row },
-            React.createElement('input', {
-              type: 'checkbox',
-              checked: state.autoStop,
-              onChange: (e) => update({ autoStop: e.target.checked }),
+        const seconds = (ms) => (ms / 1000).toFixed(1) + (en ? ' s' : ' 秒');
+
+        return h('div', { className: 'vhk-wrap' },
+          h('div', { className: 'vhk-head' },
+            h('h2', { className: 'vhk-title' }, t('语音快捷键', 'Voice hotkey')),
+            h('p', { className: 'vhk-sub' },
+              t('不用再去点输入框旁边的麦克风。按一下快捷键开始说话，说完自动停，文字直接落进输入框，回车就能发。焦点丢了也能用「聚焦输入框」键一键跳回来。',
+                'Skip the microphone button: press the hotkey, speak, and the text lands in the composer when you stop. Lost focus? One key brings the caret back.'))),
+
+          h('div', { className: 'vhk-group' }, t('快捷键', 'Shortcuts')),
+          h('div', { className: 'vhk-card' },
+            h(HotkeyRow, {
+              label: t('语音输入', 'Voice input'),
+              hint: t('轻按开/关录音；按住 0.5 秒以上，松手即停', 'Tap to start or stop; hold ≥0.5 s and release to stop'),
+              value: state.hotkey,
+              conflict: state.focusHotkey,
+              onChange: (hotkey) => update({ hotkey }),
             }),
-            React.createElement('span', null, en ? 'Stop automatically after silence' : '静音后自动停止')),
-          React.createElement('label', { style: { ...row, opacity: state.autoStop ? 1 : 0.5 } },
-            React.createElement('span', null, en ? 'Silence before stopping' : '静音多久算说完'),
-            React.createElement('select', {
-              disabled: !state.autoStop,
-              value: String(state.silenceMs),
-              onChange: (e) => update({ silenceMs: Number(e.target.value) }),
-            }, SILENCE_CHOICES.map((ms) => React.createElement('option', { key: ms, value: String(ms) }, seconds(ms))))),
-          React.createElement('p', { style: { margin: 0, fontSize: 12, opacity: 0.65 } },
-            en
-              ? 'Hotkey Alt+V (hold ≥0.5 s and release to stop). The setting applies to this browser immediately.'
-              : '热键 Alt+V（按住 0.5 秒以上松手即停）。设置只存在当前浏览器，改完立即生效。'));
+            h(HotkeyRow, {
+              label: t('聚焦输入框', 'Focus the composer'),
+              hint: t('把光标送回输入框末尾 —— DSH 自带设置里没有这个键', 'Jumps the caret back into the composer — DSH has no shortcut for this'),
+              value: state.focusHotkey,
+              conflict: state.hotkey,
+              onChange: (focusHotkey) => update({ focusHotkey }),
+            })),
+
+          h('div', { className: 'vhk-group' }, t('自动停止', 'Auto stop')),
+          h('div', { className: 'vhk-card' },
+            h('div', { className: 'vhk-row' },
+              h('div', { className: 'vhk-text' },
+                h('div', { className: 'vhk-label' }, t('说完自动结束录音', 'Stop automatically when I stop talking')),
+                h('div', { className: 'vhk-hint' },
+                  t('关掉后需要自己再按一次快捷键来结束', 'When off, press the hotkey again to finish'))),
+              h(Switch, { checked: state.autoStop, onChange: (autoStop) => update({ autoStop }) })),
+            h('div', { className: 'vhk-row' + (state.autoStop ? '' : ' vhk-disabled') },
+              h('div', { className: 'vhk-text' },
+                h('div', { className: 'vhk-label' }, t('停顿多久算说完', 'Silence before stopping')),
+                h('div', { className: 'vhk-hint' },
+                  t('说得慢、爱思考就把这条往右拉长一点', 'Raise it if you pause a lot while thinking'))),
+              h('div', { className: 'vhk-right' },
+                h('input', {
+                  type: 'range',
+                  className: 'vhk-range',
+                  min: SILENCE_MIN, max: SILENCE_MAX, step: SILENCE_STEP,
+                  value: state.silenceMs,
+                  onChange: (e) => update({ silenceMs: Number(e.target.value) }),
+                }),
+                h('span', { className: 'vhk-val' }, seconds(state.silenceMs))))),
+
+          h('p', { className: 'vhk-foot' },
+            t('设置保存在当前浏览器（桌面版同样可用），改完立即生效；换浏览器或清缓存会回到默认。',
+              'Settings live in this browser (works the same in the desktop app) and apply immediately; clearing site data restores the defaults.')));
+      };
+    }
+
+    // 设置页左侧导航用的小图标（麦克风）—— 尺寸由设置页通过 props.size 指定
+    function settingsIcon(React) {
+      return function VoiceHotkeyIcon(props) {
+        const size = props && typeof props.size === 'number' ? props.size : 16;
+        return React.createElement('svg', {
+          viewBox: '0 0 24 24', width: size, height: size, fill: 'none',
+          stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+          'aria-hidden': 'true', style: { display: 'block' },
+        },
+        React.createElement('rect', { x: 9, y: 3, width: 6, height: 11, rx: 3 }),
+        React.createElement('path', { d: 'M5 11a7 7 0 0 0 14 0' }),
+        React.createElement('path', { d: 'M12 18v3' }));
       };
     }
 
@@ -254,13 +542,35 @@ window.__ModuleLoader__.load({
         if (ctx && typeof ctx.effect === 'function') ctx.effect(() => { install(); return dispose; });
         else install();
 
-        // 插件详情页里的配置区：key 必须是本 bundle 的包名
+        ensureStyles();
+
+        const React = require('react');
+        const en = String(navigator.language || '').toLowerCase().startsWith('en');
+
+        // ① 设置页里的独立分区 —— 和其它插件的设置项并排出现
+        try {
+          if (ctx && ctx.slots) {
+            ctx.slots.inject('settings.section', () => ctx.slots.register({
+              name: 'settings.section',
+              id: 'voice-hotkey',
+              order: 60,
+              label: en ? 'Voice hotkey' : '语音快捷键',
+            }, settingsPanel(React)));
+            ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
+              name: 'settings.section.icon',
+              id: 'voice-hotkey',
+              order: 60,
+            }, settingsIcon(React)));
+          }
+        } catch (e) { warn('设置分区没挂上：' + e); }
+
+        // ② 插件详情页里的配置区：key 必须是本 bundle 的包名
         try {
           if (ctx && ctx.slots) {
             ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
               name: 'plugins.bundle.config',
               key: 'dsh-voice-hotkey',
-            }, settingsPanel(require('react'))));
+            }, settingsPanel(React)));
           }
         } catch (e) { warn('设置面板没挂上：' + e); }
       },

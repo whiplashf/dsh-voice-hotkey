@@ -5,7 +5,9 @@
 ./scripts/release.sh minor
 ```
 
-它做三件事：检查「自上次 tag 以来是否真有代码改动」→ `npm version` → 推 main 和 tag。推完 GitHub Actions 自动 `npm publish`（Trusted Publishing，仓库里没有 token）。
+它做三件事：检查「自上次 tag 以来是否真有代码改动」→ `npm version` → 推 main 和 tag。
+
+**推完不会直接发布。** publish job 挂在 `npm-publish` 这个 environment 上，配了 required reviewer —— 任务会停在 *Waiting for approval*，得在 GitHub 上点一次批准，才会真的 `npm publish`（Trusted Publishing，仓库里没有 token）。这就是"发版前先确认"那道门。
 
 ## 两条规则
 
@@ -14,7 +16,7 @@
 
 ## 时间预期
 
-- 推 tag 后 Actions 约 20 秒跑完；
+- 推 tag 后 Actions 先等批准，点了批准约 20 秒跑完；
 - npm 上 `npm view <包> version` 能看到新版本，还要等发布队列 + Cloudflare 缓存，各约 5 分钟——不要前台等。
 
 ## 手动发版（脚本坏了时）

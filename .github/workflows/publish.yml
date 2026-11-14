@@ -17,6 +17,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # 发布必须有人点头：这个 environment 配了 required reviewer，
+    # 推完 tag 后任务会停在 "Waiting for approval"，点批准才会真的 npm publish。
+    environment: npm-publish
     steps:
       - uses: actions/checkout@v4
         with:

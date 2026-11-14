@@ -33,5 +33,6 @@ fi
 npm version "$bump" -m "release: %s"
 git push origin HEAD --follow-tags
 echo
-echo "已推 tag $(git describe --tags --abbrev=0)。GitHub Actions 会自动发布（约 20 秒），"
-echo "npm 上可见还要几分钟（发布队列 + CDN 缓存，各约 5 分钟）。"
+echo "已推 tag $(git describe --tags --abbrev=0)。发布不会自己发生："
+echo "去 GitHub 的 Actions 里点一次批准，才会真正 npm publish。"
+echo "批准后再等几分钟，npm 上才可见（发布队列 + CDN 缓存，各约 5 分钟）。"

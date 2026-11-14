@@ -17,6 +17,7 @@ window.__ModuleLoader__.load({
     const DEFAULT_FOCUS_HOTKEY = { code: 'KeyI', ctrl: true, alt: true, shift: false, meta: false };
     const DEFAULTS = {
       autoStop: true,
+      autoSend: false,
       silenceMs: 2000,
       hotkey: DEFAULT_HOTKEY,
       focusHotkey: DEFAULT_FOCUS_HOTKEY,
@@ -87,6 +88,7 @@ window.__ModuleLoader__.load({
         }
         return {
           autoStop: typeof parsed.autoStop === 'boolean' ? parsed.autoStop : DEFAULTS.autoStop,
+          autoSend: typeof parsed.autoSend === 'boolean' ? parsed.autoSend : DEFAULTS.autoSend,
           silenceMs: clampSilence(parsed.silenceMs),
           hotkey,
           focusHotkey,
@@ -196,6 +198,57 @@ window.__ModuleLoader__.load({
       } catch (e) { /* 聚焦失败不阻断录音 */ }
     }
 
+    // 自动发送：官方发送按钮的 aria-label 取自语言包的 input.send
+    const SEND_LABELS = ['发送消息', 'Send message'];
+
+    function composer() {
+      const scoped = document.querySelector('[data-composer-input] [contenteditable="true"]');
+      if (scoped) return scoped;
+      const all = document.querySelectorAll('[contenteditable="true"]');
+      return all.length === 1 ? all[0] : null;
+    }
+
+    function composerHasText() {
+      const el = composer();
+      if (!el) return false;
+      return String(el.innerText || el.textContent || '').trim().length > 0;
+    }
+
+    function sendComposer() {
+      const button = findByLabels(SEND_LABELS, null);
+      if (button) return click(button);
+      // 没有发送按钮（例如正在生成时按钮变成「停止」）：退回合成一次回车
+      const el = composer();
+      if (!el) return false;
+      const make = (type) => new window.KeyboardEvent(type, {
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
+      });
+      el.dispatchEvent(make('keydown'));
+      el.dispatchEvent(make('keyup'));
+      return true;
+    }
+
+    // 转写写回是异步的，可能比相位归位晚几十毫秒，所以隔一会儿再确认有没有字
+    let sendTimer = null;
+
+    function stopAutoSend() {
+      if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
+    }
+
+    function autoSendAfterTranscribe(attempt) {
+      stopAutoSend();
+      const tries = typeof attempt === 'number' ? attempt : 0;
+      sendTimer = setTimeout(() => {
+        sendTimer = null;
+        if (!readSettings().autoSend) return;      // 中途关掉就不再发
+        if (!composerHasText()) {
+          if (tries < 6) autoSendAfterTranscribe(tries + 1);
+          return;
+        }
+        sendComposer();
+      }, tries === 0 ? 180 : 200);
+    }
+
     // 说话过程中人可能去点了别处（侧边栏、消息、别的面板），焦点就跑掉了。
     // 转写结束、相位归位的那一刻，再把光标送回输入框末尾 —— 这样回车能直接发。
     let completionTimer = null;
@@ -213,7 +266,12 @@ window.__ModuleLoader__.load({
       completionTimer = setInterval(() => {
         const phase = completionPhase();
         if (phase !== 'idle') { seen = true; return; }
-        if (seen) { stopWatchingCompletion(); focusComposer(); return; }
+        if (seen) {
+          stopWatchingCompletion();
+          focusComposer();
+          if (readSettings().autoSend) autoSendAfterTranscribe();
+          return;
+        }
         if (Date.now() - startedAt > 120000) stopWatchingCompletion();
       }, 120);
     }
@@ -227,6 +285,7 @@ window.__ModuleLoader__.load({
       const target = retry || findByLabels(START_LABELS, null);
       if (!target) { warn('没找到官方的「开始录音」按钮：语音输入插件可能未启用。'); return false; }
       focusComposer();
+      stopAutoSend();
       const started = click(target);
       if (started) watchCompletion();
       return started;
@@ -526,6 +585,16 @@ window.__ModuleLoader__.load({
                   onChange: (e) => update({ silenceMs: Number(e.target.value) }),
                 }),
                 h('span', { className: 'vhk-val' }, seconds(state.silenceMs))))),
+
+          h('div', { className: 'vhk-group' }, t('发送', 'Sending')),
+          h('div', { className: 'vhk-card' },
+            h('div', { className: 'vhk-row' },
+              h('div', { className: 'vhk-text' },
+                h('div', { className: 'vhk-label' }, t('说完自动发送', 'Send automatically')),
+                h('div', { className: 'vhk-hint' },
+                  t('转写完成后直接发出去，不用再按回车。适合一问一答；想先改字就别开',
+                    'Presses Enter for you once the text lands. Handy for quick questions; leave it off if you like to edit first'))),
+              h(Switch, { checked: state.autoSend, onChange: (autoSend) => update({ autoSend }) }))),
 
           h('p', { className: 'vhk-foot' },
             t('设置存在这台浏览器里，改完立即生效；换浏览器会回到默认热键（功能照常可用）。',

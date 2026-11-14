@@ -52,5 +52,14 @@
     "@deepseek-ai/dsh-client-ui-conversation": {
       "optional": true
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/whiplashf/dsh-voice-hotkey.git"
+  },
+  "homepage": "https://github.com/whiplashf/dsh-voice-hotkey#readme",
+  "bugs": {
+    "url": "https://github.com/whiplashf/dsh-voice-hotkey/issues"
+  },
+  "author": "whiplashf"
 }

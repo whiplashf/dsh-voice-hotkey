@@ -158,9 +158,19 @@ window.__ModuleLoader__.load({
     }
 
     // 连上 Host 的设置命名空间；连上后以服务器值为准，本地一次迁移过去。
+    let bindAttempts = 0;
+
     function bindConfigForm(ctx) {
+      if (configForm) return;
       try {
-        if (!ctx || typeof ctx.configForms?.get !== 'function') return;
+        if (!ctx || typeof ctx.configForms?.get !== 'function') {
+          // 设置客户端可能比本插件晚就绪，前 15 秒内重试几次；一直没有就继续用本地缓存。
+          if (bindAttempts < 30) {
+            bindAttempts += 1;
+            setTimeout(() => bindConfigForm(ctx), 500);
+          }
+          return;
+        }
         configForm = ctx.configForms.get(CONFIG_NS);
       } catch (e) { warn('设置命名空间没连上：' + e); return; }
       if (!configForm) return;
@@ -477,7 +487,7 @@ window.__ModuleLoader__.load({
 
     // ── 设置面板 ────────────────────────────────────────────────────────────
     // 同一个组件挂两处：设置页的「语音快捷键」分区，以及插件详情页的配置区。
-    function settingsPanel(React) {
+    function settingsPanel(React, outerCtx) {
       const en = String(navigator.language || '').toLowerCase().startsWith('en');
       const t = (zh, english) => (en ? english : zh);
       const h = React.createElement;
@@ -558,6 +568,7 @@ window.__ModuleLoader__.load({
       return function VoiceHotkeySettings() {
         const [state, setState] = React.useState(readSettings);
         React.useEffect(() => onChangeSettings(setState), []);
+        React.useEffect(() => { bindConfigForm(outerCtx); }, []);
         const update = (patch) => setState((current) => {
           const next = { ...current, ...patch };
           writeSettings(next);
@@ -664,7 +675,7 @@ window.__ModuleLoader__.load({
               id: 'voice-hotkey',
               order: 60,
               label: en ? 'Voice hotkey' : '语音快捷键',
-            }, settingsPanel(React)));
+            }, settingsPanel(React, ctx)));
             ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
               name: 'settings.section.icon',
               id: 'voice-hotkey',
@@ -679,7 +690,7 @@ window.__ModuleLoader__.load({
             ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
               name: 'plugins.bundle.config',
               key: 'dsh-voice-hotkey',
-            }, settingsPanel(React)));
+            }, settingsPanel(React, ctx)));
           }
         } catch (e) { warn('设置面板没挂上：' + e); }
       },

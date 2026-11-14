@@ -196,12 +196,40 @@ window.__ModuleLoader__.load({
       } catch (e) { /* 聚焦失败不阻断录音 */ }
     }
 
+    // 说话过程中人可能去点了别处（侧边栏、消息、别的面板），焦点就跑掉了。
+    // 转写结束、相位归位的那一刻，再把光标送回输入框末尾 —— 这样回车能直接发。
+    let completionTimer = null;
+
+    function completionPhase() {
+      if (recording()) return 'recording';
+      if (q('[' + PHASE_ATTR + '="feedback"]')) return 'feedback';
+      return 'idle';
+    }
+
+    function watchCompletion() {
+      stopWatchingCompletion();
+      const startedAt = Date.now();
+      let seen = false;
+      completionTimer = setInterval(() => {
+        const phase = completionPhase();
+        if (phase !== 'idle') { seen = true; return; }
+        if (seen) { stopWatchingCompletion(); focusComposer(); return; }
+        if (Date.now() - startedAt > 120000) stopWatchingCompletion();
+      }, 120);
+    }
+
+    function stopWatchingCompletion() {
+      if (completionTimer) { clearInterval(completionTimer); completionTimer = null; }
+    }
+
     function startRecording() {
       const retry = findByLabels(RETRY_LABELS, '[' + PHASE_ATTR + '="feedback"]');
       const target = retry || findByLabels(START_LABELS, null);
       if (!target) { warn('没找到官方的「开始录音」按钮：语音输入插件可能未启用。'); return false; }
       focusComposer();
-      return click(target);
+      const started = click(target);
+      if (started) watchCompletion();
+      return started;
     }
 
     function stopRecording() {

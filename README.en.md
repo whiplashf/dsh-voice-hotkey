@@ -9,7 +9,7 @@
 
 <p align="center">
   <b>Minimal push-to-talk voice input for DeepSeek Harness.</b><br>
-  Press a hotkey, speak, silence stops it, the text lands in the composer — Enter sends.
+  Press a hotkey, speak, silence stops it, the text lands in the composer — Enter sends, or let it press Enter for you.
 </p>
 
 <p align="center">
@@ -30,7 +30,9 @@ Or type `dsh-voice-hotkey` into the install box on the **Plugins** page. Restart
 
 Press the hotkey, speak, and two seconds of silence ends the take; the text lands in the composer with focus intact, Enter sends. A short tap toggles, holding and releasing means "stop when I let go".
 
-**Both hotkeys are yours to rebind or disable**, including a separate "focus the composer" hotkey (dsh has no such command). The silence threshold and auto-stop live in the same panel — the screenshot above.
+To skip the Enter key too, turn on **Send automatically** in settings: the message goes out as soon as the transcript lands.
+
+**Both hotkeys are yours to rebind or disable**, including a separate "focus the composer" hotkey (dsh has no such command). The silence threshold, auto-stop and auto-send live in the same panel — the screenshot above.
 
 Settings are stored in this browser's `localStorage`.
 

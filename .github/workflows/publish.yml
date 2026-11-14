@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -39,5 +41,30 @@ jobs:
             exit 1
           fi
 
+      # 只改文档（README / docs / assets）不值得占一个版本号：npm 页面会旧一点，
+      # 等下一次真正的代码改动一起同步。这里直接把发布跳过。
+      - name: Does this release still change code?
+        id: diff
+        run: |
+          prev="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -z "$prev" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              *.md|docs/*|assets/*|LICENSE) ;;
+              *) code=true ;;
+            esac
+          done <<< "$(git diff --name-only "$prev..$GITHUB_REF_NAME")"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
       - name: Publish
+        if: steps.diff.outputs.code == 'true'
         run: npm publish --provenance --access public
+
+      - name: Skipped (docs only)
+        if: steps.diff.outputs.code == 'false'
+        run: echo "::notice::只有文档改动，不发布新版本；GitHub 上的文档已经是新的。" 

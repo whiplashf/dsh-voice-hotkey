@@ -1,13 +1,13 @@
 # 发版
 
 ```bash
-./scripts/release.sh          # patch（默认）
+./scripts/release.sh          # patch（默认），会先问一句再动手
 ./scripts/release.sh minor
 ```
 
 它做三件事：检查「自上次 tag 以来是否真有代码改动」→ `npm version` → 推 main 和 tag。
 
-**推完不会直接发布。** publish job 挂在 `npm-publish` 这个 environment 上，配了 required reviewer —— 任务会停在 *Waiting for approval*，得在 GitHub 上点一次批准，才会真的 `npm publish`（Trusted Publishing，仓库里没有 token）。这就是"发版前先确认"那道门。
+**发版前先确认**，确认地点是跟 AI 助手的那次对话，不是 GitHub。脚本自己也会问一句（`确认发？(y/N)`），回车就是取消；要跳过提问用 `RELEASE_YES=1`。发布本身仍由 GitHub Actions + Trusted Publishing 完成，仓库里没有 npm token。
 
 ## 两条规则
 
@@ -16,7 +16,7 @@
 
 ## 时间预期
 
-- 推 tag 后 Actions 先等批准，点了批准约 20 秒跑完；
+- 推 tag 后 Actions 约 20 秒跑完；
 - npm 上 `npm view <包> version` 能看到新版本，还要等发布队列 + Cloudflare 缓存，各约 5 分钟——不要前台等。
 
 ## 手动发版（脚本坏了时）

@@ -25,6 +25,15 @@ if [ -n "$prev" ]; then
   fi
 fi
 
+info="$(node -p "require('./package.json').name + ' ' + require('./package.json').version")"
+next="$(node -p "const v=require('./package.json').version.split('.').map(Number); v[2]+=1; v.join('.')")"
+if [ "${1:-}" != "--yes" ] && [ "${2:-}" != "--yes" ] && [ "${RELEASE_YES:-}" != "1" ]; then
+  printf '%s\n' "准备发版：$info → $next（$bump）" >&2
+  printf '确认发？(y/N) ' >&2
+  read -r answer
+  case "$answer" in y | Y | yes | YES) ;; *) echo "已取消。" >&2; exit 1 ;; esac
+fi
+
 if [ -n "$(git status --porcelain)" ]; then
   echo "工作区还有未提交的改动，先提交再来。" >&2
   exit 1
@@ -33,6 +42,5 @@ fi
 npm version "$bump" -m "release: %s"
 git push origin HEAD --follow-tags
 echo
-echo "已推 tag $(git describe --tags --abbrev=0)。发布不会自己发生："
-echo "去 GitHub 的 Actions 里点一次批准，才会真正 npm publish。"
-echo "批准后再等几分钟，npm 上才可见（发布队列 + CDN 缓存，各约 5 分钟）。"
+echo "已推 tag $(git describe --tags --abbrev=0)。GitHub Actions 约 20 秒发布完，"
+echo "之后 npm 上再等几分钟可见（发布队列 + Cloudflare 缓存，各约 5 分钟）。"

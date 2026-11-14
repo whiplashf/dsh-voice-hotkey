@@ -1,6 +1,6 @@
 {
   "name": "dsh-voice-hotkey",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "description": "Minimal push-to-talk voice input for DeepSeek Harness: Alt+V toggles the official Voice Input recorder, silence stops it, the transcript lands in the composer with focus intact.",
   "license": "MIT",

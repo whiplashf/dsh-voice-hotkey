@@ -393,8 +393,13 @@ window.__ModuleLoader__.load({
             if (e.repeat) return;
             e.preventDefault();
             e.stopPropagation();
-            if (e.code === 'Escape') { setCapturing(false); setHint(''); return; }
-            if ((e.code === 'Backspace' || e.code === 'Delete') && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+            // Esc 是「清空」：录制中按 Esc 就把这个热键设为未设置（不是放弃修改）。
+            // 只有按下带 Ctrl/Alt/Meta 的普通键才算设置成功；只按修饰键只提示、不落盘。
+            if (e.code === 'Escape' || e.code === 'Backspace' || e.code === 'Delete') {
+              if (e.code !== 'Escape' && (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey)) {
+                setHint(t('Backspace / Delete 单独按才能清空', 'Press Backspace / Delete on its own to clear'));
+                return;
+              }
               props.onChange(null);
               setCapturing(false);
               setHint('');
@@ -437,7 +442,7 @@ window.__ModuleLoader__.load({
               className: 'vhk-kbd' + (capturing ? ' vhk-capturing' : '') + (value ? '' : ' vhk-off'),
               onClick: () => { setHint(''); setCapturing((v) => !v); },
             }, capturing
-              ? t('请按组合键…（Esc 取消，Backspace 清除）', 'Press keys… (Esc cancels, Backspace clears)')
+              ? t('请按组合键…（Esc 清空）', 'Press keys… (Esc clears)')
               : (value ? formatHotkey(value) : t('未设置', 'Not set'))),
             value && !capturing
               ? h('button', {

@@ -1,6 +1,6 @@
 {
   "name": "dsh-voice-hotkey",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "type": "module",
   "description": "Press Alt+V, speak, get the text in the composer: push-to-talk hotkey, silence auto-stop and a focus hotkey for DeepSeek Harness.",
   "license": "MIT",
@@ -29,6 +29,7 @@
     "locale/*.json",
     "docs",
     "icon.svg",
+    "assets",
     "README.md",
     "README.en.md",
     "LICENSE"

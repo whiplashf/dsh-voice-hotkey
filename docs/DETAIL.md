@@ -75,6 +75,28 @@ DSH 没有任何「把焦点送回输入框」的快捷键。官方语音插件�
 
 官方这行本身没有红点和时长，插件在同一行补了两样：波形左边的呼吸绿点（跟随记录状态的主题绿）、右边的 `0:07` 计时（转写时停住）。状态字（「正在聆听…」）试过、会多占一行把按钮挤下去，所以不放。X 和 ✓ 按钮 34px、图标 18px（跟官方发送按钮同尺寸），同一套自绘线条（1.6 描边、同一灰色），不再一个 14px 描边图标配一个 16px 勾。
 
+## 6. 切换语音识别服务（麦克风左边的小下拉）
+
+输入框工具条右侧、模型选择器右边（紧挨麦克风）多一个小下拉，列出官方 `speechToText` 服务当前注册的所有识别器 —— 装了什么就有什么，例如「豆包 / 豆包·顺稿 / 本地」。选一下就切，下一次录音立即按新服务转写，不用重启、不用改配置文件。
+
+- 读：`ctx.remote.speech.catalog()`，拿 `providers` 与 `selection`。
+- 写：`ctx.remote.speech.configure({ providerId })`。它由官方 Host 侧写进 `speech-to-text` 条目的 `defaultProvider`（该字段声明为 volatile），Host 收到 `loader/volatile-update` 后就地更新，转写时 `resolve()` 每次现读配置。
+- 所以选择是持久化的：写进 profile 的 `cordis.patch.yml`，下次启动还是这个。
+
+实现上不碰任何转写代码：豆包插件继续做 provider，本插件只做控制面。切换失败会重新拉一次 catalog 把下拉拨回真实值，不会假装切成功。
+
+下拉里的文字从哪来：
+
+- 选项列表是 `catalog().providers`，每个 provider 的 `id / name / location / languages` 都由插件自己注册时上报，**不是写死的**。
+- `豆包 / 豆包·顺稿` 是本插件对 `doubao`、`doubao-polished` 两个 id 的中英短名映射（英文界面用 Doubao），其它 id 直接显示 `info.name`。
+- 后缀「云端 / 本地」来自 `info.location`（`cloud` / `host-local`）。
+- 模型档位：本地 SenseVoice 的 INT8/FP32 就在 `info.name` 里（`SenseVoiceSmall (INT8)`），所以能看到；豆包的 2.0/1.0 档由插件配置里的 `resourceId` 决定，`catalog` 不暴露，所以下拉里看不到，只能算在「云端」名下。
+- 鼠标悬停能看到 `info.name` 加支持的语言列表。
+
+没装豆包插件时：列表里只有本地 SenseVoice，不报错。装了豆包但没配 Key 时：provider 仍会注册，选了转写会失败（错误来自豆包插件）。官方 `speech-to-text` 没挂载时：显示灰色「语音服务」占位；服务在但一个识别器都没注册时：显示「无可用识别服务」。
+
+限制：`speech/*` 在官方 LiveShare 里是 `owner-only`，分享出去的会话里这个下拉会读不到列表（此时整块不渲染）。切的时候正在录音不影响，新服务从下一轮开始生效。
+
 ## 设置存放
 
 浏览器 `localStorage` 键 `dsh-voice-hotkey:settings`，改完立即生效，不需要重启。清站点数据会回到默认。
@@ -84,7 +106,7 @@ DSH 没有任何「把焦点送回输入框」的快捷键。官方语音插件�
 ## 边界
 
 - 依赖官方 `dsh-experimental-client-ui-voice-input` 渲染的按钮（`aria-label` 为「开始录音 / 停止并识别 / 重新录音」，相位属性 `data-voice-activity`）；它没启用时热键不会有反应（控制台会有一次 `[voice-hotkey]` 警告）。
-- 转写仍走官方链路（SenseVoice 本地模型），本插件不改变识别质量。
+- 转写仍走官方链路（默认本地 SenseVoice；装了我们 fork 的豆包插件就能在这里切云端），本插件不改变识别质量。
 - 静音判定只看音量，不看语义；说话中间停顿超过设定时长会被判为说完了。
 - 不支持「边说边出字」：官方识别是一次性返回的。
 - 主题样式用 DSH 的设计令牌（`--dsw-alias-*`），每个值都带 fallback，深浅色都跟随系统。

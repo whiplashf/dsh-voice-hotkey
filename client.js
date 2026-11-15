@@ -693,6 +693,37 @@ window.__ModuleLoader__.load({
   background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 12%,transparent);
   border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 35%,transparent)}
 .vhk-armed:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 20%,transparent)}
+.vhk-provider{position:relative;display:inline-flex;align-items:center;flex:none;color:var(--dsw-alias-label-secondary,#a8a8a8)}
+/* 右侧控制簇里排在模型选择器之后，这样下拉就紧贴在麦克风左边 */
+*:has(> .vhk-provider){display:flex;align-items:center;gap:8px}
+*:has(> .vhk-provider) > :not(.vhk-provider){order:0}
+*:has(> .vhk-provider) > .vhk-provider{order:1}
+/* chip 完全照抄官方模型选择器 trigger 的尺寸/字号/圆角/悬停 */
+.vhk-provider-trigger{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 4px 0 8px;border:none;
+  border-radius:var(--dsw-radius-sm,6px);background:transparent;color:inherit;font:inherit;font-size:13px;
+  line-height:20px;font-weight:400;font-family:inherit;max-width:170px;cursor:pointer}
+.vhk-provider-trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.16))}
+.vhk-provider-trigger:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4f9cf9))}
+.vhk-provider-trigger[disabled]{opacity:.55;cursor:default}
+.vhk-provider-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vhk-provider-chevron{flex:0 0 auto;width:12px;height:12px;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4.5 6.5 8 10 11.5 6.5' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") center/12px 12px no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4.5 6.5 8 10 11.5 6.5' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") center/12px 12px no-repeat}
+/* 弹层：和官方菜单同一材质（bg-layer-2 底、10px 圆角、elevation 阴影、4px 内边距） */
+.vhk-provider-menu{position:absolute;right:0;bottom:calc(100% + 8px);z-index:1100;display:flex;flex-direction:column;
+  gap:2px;width:max-content;min-width:200px;max-width:min(320px,calc(100vw - 24px));
+  max-height:min(360px,calc(100dvh - 96px));overflow:auto;padding:4px;border-radius:10px;
+  background:var(--dsw-alias-bg-layer-2,#2a2a2c);box-shadow:var(--dsw-elevation-prominent,0 8px 24px rgba(0,0,0,.45));
+  color:var(--dsw-alias-label-primary,#e6e6e6)}
+.vhk-provider-item{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:0 8px;border:none;
+  border-radius:var(--dsw-radius-md,8px);background:transparent;color:inherit;font:inherit;font-size:13px;
+  line-height:20px;text-align:left;cursor:pointer}
+.vhk-provider-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.16))}
+.vhk-provider-item:focus-visible{outline:none;background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.16))}
+.vhk-provider-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vhk-provider-loc{flex:0 0 auto;color:var(--dsw-alias-label-tertiary,#8a8a8a);font-size:12px}
+.vhk-provider-check{flex:0 0 auto;width:12px;height:12px;background:var(--dsw-alias-state-business-primary,#4f9cf9);
+  -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 8.6l3.2 3.2L13 4.6' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>") center/12px 12px no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 8.6l3.2 3.2L13 4.6' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>") center/12px 12px no-repeat}
+.vhk-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* 官方发送箭头：已设定时描一圈，表示「这一轮转完就发」 */
 button[data-voice-hotkey-armed="true"]{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 55%,transparent)}
 `;
@@ -868,8 +899,166 @@ button[data-voice-hotkey-armed="true"]{box-shadow:0 0 0 2px color-mix(in srgb,va
       };
     }
 
+    // ── 语音识别服务切换器（输入框工具条左侧的小下拉）───────────────────────
+    // 官方已经把「运行时切 provider」做成公开能力：remote.speech.configure({providerId})
+    // 写的是 speech-to-text 条目的 defaultProvider（volatile），下一次转写立即生效。
+    let speechRemote = null;
+
+    // speech 命名空间由官方 ui-voice-input 挂载后才存在，直接摸可能抛错，统一兜住
+    function speechApi(ctx) {
+      if (!ctx) return null;
+      // remote.speech 是 Typert 挂上来的独立服务名，用 get 最稳（缺失时返回 undefined 而不是抛）
+      try {
+        const byName = typeof ctx.get === 'function' ? ctx.get('remote.speech') : null;
+        if (byName) return byName;
+      } catch (e) { /* 继续试属性访问 */ }
+      try {
+        const remote = ctx.remote;
+        return (remote && remote.speech) || null;
+      } catch (e) { return null; }
+    }
+
+    // 名称全部来自 provider 自己上报的 info（id / name / location），只有这三个常见 id 做了中英短名映射
+    function shortProviderName(provider, en) {
+      const id = String(provider && provider.id || '');
+      if (id === 'doubao') return en ? 'Doubao' : '豆包';
+      if (id === 'doubao-polished') return en ? 'Doubao + polish' : '豆包·顺稿';
+      // 官方本地识别器：显示它上报的真名（SenseVoiceSmall (INT8)），chip 里超宽会省略号截断
+      if (id === 'sensevoice-local') return String(provider && provider.name || 'SenseVoice');
+      const name = String(provider && provider.name || id);
+      return name.replace(/[（(].*?[）)]/g, '').trim() || id;
+    }
+
+    // 名字后面挂「云端 / 本地」：这是 provider.info.location，唯一可靠的部署位置信号
+    function providerLabel(provider, en) {
+      const base = shortProviderName(provider, en);
+      const location = provider && provider.location;
+      if (location === 'cloud') return base + (en ? ' · cloud' : ' · 云端');
+      if (location === 'host-local') return base + (en ? ' · local' : ' · 本地');
+      return base;
+    }
+
+    function providerTitle(provider, en) {
+      if (!provider) return en ? 'Speech recognition service' : '语音识别服务';
+      const languages = Array.isArray(provider.languages) && provider.languages.length
+        ? provider.languages.join(' / ') : '';
+      return [provider.name || provider.id, languages].filter(Boolean).join(' — ');
+    }
+
+    function providerSwitcher(React, en, getRemote) {
+      const h = React.createElement;
+      const label = en ? 'Speech recognition service' : '语音识别服务';
+      // 和官方模型选择器一样的 chip：28px 高、透明底、13px 次要色、右侧 12px 雪佛龙
+      const chip = (props, text) => h('button', Object.assign({ type: 'button', className: 'vhk-provider-trigger' }, props),
+        h('span', { className: 'vhk-provider-text' }, text),
+        h('span', { className: 'vhk-provider-chevron', 'aria-hidden': 'true' }));
+      return function ProviderSwitcher() {
+        const [catalog, setCatalog] = React.useState(null);
+        const [busy, setBusy] = React.useState(false);
+        const [open, setOpen] = React.useState(false);
+        const rootRef = React.useRef(null);
+        React.useEffect(() => {
+          let alive = true;
+          let timer = null;
+          let tries = 0;
+          const load = async () => {
+            if (!alive) return;
+            // 官方 ui-voice-input 挂载 remote.speech 之前这里一直是空的：隔一会儿再看
+            const speech = getRemote();
+            if (!speech) {
+              if (tries++ < 60) timer = setTimeout(load, 500);
+              return;
+            }
+            try {
+              const result = await speech.catalog();
+              if (!alive) return;
+              if (result && result.ok === false) throw result.error;
+              setCatalog(result && result.ok ? result.value : result);
+            } catch (e) { warn('读不到语音识别服务列表：' + e); }
+          };
+          load();
+          return () => { alive = false; if (timer) clearTimeout(timer); };
+        }, []);
+        // 点外面、按 Esc 收起菜单
+        React.useEffect(() => {
+          if (!open) return undefined;
+          const onDown = (event) => {
+            const root = rootRef.current;
+            if (root && !root.contains(event.target)) setOpen(false);
+          };
+          const onKey = (event) => { if (event.key === 'Escape') setOpen(false); };
+          document.addEventListener('mousedown', onDown, true);
+          document.addEventListener('keydown', onKey, true);
+          return () => {
+            document.removeEventListener('mousedown', onDown, true);
+            document.removeEventListener('keydown', onKey, true);
+          };
+        }, [open]);
+        // 还没连上时留一个占位，至少能看出这条链路是活的
+        if (!catalog) {
+          return h('span', { className: 'vhk-provider' },
+            chip({ disabled: true, title: en ? 'Speech recognition service (connecting…)' : '语音识别服务（连接中…）', 'aria-label': label },
+              en ? 'Speech…' : '语音服务'));
+        }
+        // 服务在、但一个识别器都没注册：明确说出来，别留个空白
+        if (!catalog.providers || !catalog.providers.length) {
+          return h('span', { className: 'vhk-provider' },
+            chip({ disabled: true, title: en ? 'No speech recognizer is registered' : '没有注册任何语音识别服务', 'aria-label': label },
+              en ? 'No recognizer' : '无可用识别服务'));
+        }
+        const selection = catalog.selection || {};
+        const current = selection.providerId || '';
+        const currentProvider = catalog.providers.find((p) => p.id === current);
+        const choose = async (id) => {
+          setOpen(false);
+          if (id === current) return;
+          const speech = getRemote();
+          if (!speech) return;
+          setBusy(true);
+          try {
+            const result = await speech.configure({ providerId: id });
+            if (result && result.ok === false) throw result.error;
+            setCatalog(Object.assign({}, catalog, { selection: Object.assign({}, selection, { providerId: id }) }));
+          } catch (e) {
+            warn('切换语音识别服务失败：' + e);
+            // 失败就把下拉拨回真实值，别让人以为切成功了
+            try {
+              const again = await speech.catalog();
+              if (again && again.ok) setCatalog(again.value); else if (again) setCatalog(again);
+            } catch (ignored) { /* 保持原样 */ }
+          } finally { setBusy(false); }
+        };
+        return h('span', { className: 'vhk-provider', ref: rootRef },
+          chip({
+            disabled: busy || !current,
+            'aria-haspopup': 'listbox',
+            'aria-expanded': open ? 'true' : 'false',
+            title: providerTitle(currentProvider, en),
+            onClick: () => setOpen(!open),
+          }, providerLabel(currentProvider, en)),
+          open ? h('div', { className: 'vhk-provider-menu', role: 'listbox', 'aria-label': label },
+            catalog.providers.map((provider) => {
+              const selected = provider.id === current;
+              const loc = provider.location === 'cloud' ? (en ? 'cloud' : '云端')
+                : provider.location === 'host-local' ? (en ? 'local' : '本地') : '';
+              return h('button', {
+                key: provider.id,
+                type: 'button',
+                role: 'option',
+                'aria-selected': selected ? 'true' : 'false',
+                className: 'vhk-provider-item' + (selected ? ' is-selected' : ''),
+                title: providerTitle(provider, en),
+                onClick: () => choose(provider.id),
+              },
+                h('span', { className: 'vhk-provider-name' }, shortProviderName(provider, en)),
+                h('span', { className: 'vhk-provider-loc' }, loc),
+                selected ? h('span', { className: 'vhk-provider-check', 'aria-hidden': 'true' }) : null);
+            })) : null);
+      };
+    }
+
     return {
-      inject: ['slots'],
+      inject: ['slots', 'remote'],
       apply(ctx) {
         const install = () => {
           window.addEventListener('keydown', onKeyDown, true);
@@ -894,6 +1083,19 @@ button[data-voice-hotkey-armed="true"]{box-shadow:0 0 0 2px color-mix(in srgb,va
 
         const React = require('react');
         const en = String(navigator.language || '').toLowerCase().startsWith('en');
+        speechRemote = speechApi(ctx);
+
+        // ③ 输入框右侧控制簇：语音识别服务小下拉，排在模型选择器之后、紧挨麦克风
+        try {
+          if (ctx && ctx.slots) {
+            ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
+              name: 'conversation.input.right',
+              id: 'voice-provider',
+              order: 30,
+              label: en ? 'Speech service' : '语音识别服务',
+            }, providerSwitcher(React, en, () => speechRemote || speechApi(ctx))));
+          }
+        } catch (e) { warn('语音服务切换器没挂上：' + e); }
 
         // ① 设置页里的独立分区 —— 和其它插件的设置项并排出现
         try {

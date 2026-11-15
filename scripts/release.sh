@@ -39,10 +39,25 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
-# HTTP/1.1：这条线路对 HTTP/2 多路复用不稳，默认协议会时不时报
-# "Error in the HTTP2 framing layer" / TLS 半途断开，退回 1.1 才推得上去。
 npm version "$bump" -m "release: %s"
-git -c http.version=HTTP/1.1 push origin HEAD --follow-tags
+
+# 国内到 github.com 的线路会整段黑洞几分钟：默认没有上限，一次卡 130 秒以上。
+# 所以每次最多等 90 秒，失败就再来，最多三轮；HTTP/1.1 是因为这条线路的
+# HTTP/2 多路复用经常报 "Error in the HTTP2 framing layer" 或 TLS 半途断开。
+attempt=1
+while :; do
+  if timeout 90 git -c http.version=HTTP/1.1 push origin HEAD --follow-tags; then
+    break
+  fi
+  if [ "$attempt" -ge 3 ]; then
+    echo "推送三轮都失败了。本地已经 bump 到 $next 并打了 tag，网络恢复后手动跑：" >&2
+    echo "  git push origin HEAD --follow-tags" >&2
+    exit 1
+  fi
+  echo "推送失败（第 $attempt 轮），10 秒后重试…" >&2
+  attempt=$((attempt + 1))
+  sleep 10
+done
 echo
 echo "已推 tag $(git describe --tags --abbrev=0)。GitHub Actions 约 20 秒发布完，"
 echo "之后 npm 上再等几分钟可见（发布队列 + Cloudflare 缓存，各约 5 分钟）。"

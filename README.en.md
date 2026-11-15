@@ -16,6 +16,14 @@
   <img src="assets/settings.png" width="560" alt="Voice hotkey settings panel">
 </p>
 
+## First, a word: WeChat may already be enough
+
+If WeChat runs on the same machine, **hold `Ctrl+Win`, speak, release — the text lands at your cursor** in any app. No setup, no plugin.
+
+This plugin only pays off when you want the text **sent for you**: it lands in the DSH composer with focus kept and Enter pressed automatically. Switching recognizers and custom hotkeys serve that same goal.
+
+So try WeChat first; come back if it isn't enough.
+
 ## Install
 
 ```bash

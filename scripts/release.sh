@@ -39,8 +39,10 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
+# HTTP/1.1：这条线路对 HTTP/2 多路复用不稳，默认协议会时不时报
+# "Error in the HTTP2 framing layer" / TLS 半途断开，退回 1.1 才推得上去。
 npm version "$bump" -m "release: %s"
-git push origin HEAD --follow-tags
+git -c http.version=HTTP/1.1 push origin HEAD --follow-tags
 echo
 echo "已推 tag $(git describe --tags --abbrev=0)。GitHub Actions 约 20 秒发布完，"
 echo "之后 npm 上再等几分钟可见（发布队列 + Cloudflare 缓存，各约 5 分钟）。"

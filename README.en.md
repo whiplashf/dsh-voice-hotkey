@@ -44,6 +44,8 @@ Want to wrap up early? **Press Space** — it stops the take, and only while rec
 
 To skip the Enter key too, turn on **Send automatically** in settings: the message goes out as soon as the transcript lands.
 
+The recording row has just two buttons: **×** to cancel, **✓** to stop and transcribe. Whether it is sent is decided once the text lands.
+
 **Both hotkeys are yours to rebind or disable**, including a separate "focus the composer" hotkey (dsh has no such command). The silence threshold, auto-stop and auto-send live in the same panel — the screenshot above.
 
 Settings are stored in this browser's `localStorage`.

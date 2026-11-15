@@ -427,9 +427,27 @@ window.__ModuleLoader__.load({
     // 设置面板正在录制新热键时，这个函数不为 null：此时全局热键让路
     let captureKey = null;
 
+    // 录音中按空格 = 立刻停止并转写，和点官方的「停止并识别」等价。
+    // 只在录音（含正在启动的那几百毫秒）时拦截，平时空格照常打字。
+    function spaceStopsCapture() {
+      const phase = phaseNow();
+      if (phase === 'recording') return true;
+      if (phase !== 'active' || !sessionActive) return false;
+      // requesting：官方按钮还没出现就别拦，免得把空格吞掉
+      return Boolean(findByLabels(STOP_LABELS, null));
+    }
+
     function onKeyDown(e) {
       if (captureKey) return;
       if (e.repeat) return;
+      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && spaceStopsCapture()) {
+        e.preventDefault();
+        e.stopPropagation();
+        pressAt = 0;
+        stopRecording();
+        stopVad();
+        return;
+      }
       const settings = readSettings();
       // 聚焦输入框：DSH 自己没注册这个命令，这里补上（对任何界面都有效）
       if (settings.focusHotkey && matchesHotkey(e, settings.focusHotkey)) {
@@ -623,7 +641,8 @@ window.__ModuleLoader__.load({
               h('div', { className: 'vhk-text' },
                 h('div', { className: 'vhk-label' }, t('说完自动结束录音', 'Stop automatically when I stop talking')),
                 h('div', { className: 'vhk-hint' },
-                  t('关掉后需要自己再按一次快捷键来结束', 'When off, press the hotkey again to finish'))),
+                  t('关掉后需要自己再按一次快捷键或空格来结束；录音中随时按空格都能立刻停',
+                    'When off, press the hotkey or Space again to finish; Space stops a recording at any time'))),
               h(Switch, { checked: state.autoStop, onChange: (autoStop) => update({ autoStop }) })),
             h('div', { className: 'vhk-row' + (state.autoStop ? '' : ' vhk-disabled') },
               h('div', { className: 'vhk-text' },

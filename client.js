@@ -208,10 +208,11 @@ window.__ModuleLoader__.load({
       return all.length === 1 ? all[0] : null;
     }
 
-    function composerHasText() {
+    // 输入框里当前的文字（含你原本手打的内容），用来判断转写到底有没有落进来
+    function composerText() {
       const el = composer();
-      if (!el) return false;
-      return String(el.innerText || el.textContent || '').trim().length > 0;
+      if (!el) return '';
+      return String(el.innerText || el.textContent || '');
     }
 
     function sendComposer() {
@@ -228,7 +229,7 @@ window.__ModuleLoader__.load({
       return true;
     }
 
-    // 转写写回是异步的，可能比相位归位晚几十毫秒，所以隔一会儿再确认有没有字
+    // 转写写回是异步的，可能比相位归位晚几十毫秒，所以隔一会儿再确认有没有新字
     let sendTimer = null;
 
     function stopAutoSend() {
@@ -238,10 +239,14 @@ window.__ModuleLoader__.load({
     function autoSendAfterTranscribe(attempt) {
       stopAutoSend();
       const tries = typeof attempt === 'number' ? attempt : 0;
+      const baseline = sessionBaseline;
+      const target = sessionComposer;
       sendTimer = setTimeout(() => {
         sendTimer = null;
         if (!readSettings().autoSend) return;      // 中途关掉就不再发
-        if (!composerHasText()) {
+        if (sessionActive) return;                 // 新一轮录音已经开始，旧的作废
+        // 只认「同一个输入框、比开录前多了字」：手动取消、转写失败、切会话都不该触发发送
+        if (composer() !== target || composerText().length <= baseline.length) {
           if (tries < 6) autoSendAfterTranscribe(tries + 1);
           return;
         }
@@ -249,35 +254,85 @@ window.__ModuleLoader__.load({
       }, tries === 0 ? 180 : 200);
     }
 
-    // 说话过程中人可能去点了别处（侧边栏、消息、别的面板），焦点就跑掉了。
-    // 转写结束、相位归位的那一刻，再把光标送回输入框末尾 —— 这样回车能直接发。
-    let completionTimer = null;
+    // ── 相位观测：不管录音是谁开的，结束都走同一套收尾 ─────────────────────
+    // 官方插件把相位写在 DOM 上（requesting / recording / transcribing / feedback，idle 时整行消失）。
+    // 本插件自己开录时会顺手做收尾，但用鼠标点官方那个麦克风开录时完全绕过我们 ——
+    // 所以统一盯住这个相位：静音自动停、结束时把光标送回输入框、按设置自动发送，两种入口一致。
+    let sessionActive = false;   // 当前这一轮录音是否还在进行
+    let sessionBaseline = '';    // 开录前输入框里已有的文字，用来看转写有没有真的落进来
+    let sessionComposer = null;  // 开录时那个输入框节点，切会话后就不该再发旧内容
+    let lastPhase = 'idle';
+    let phaseObserver = null;
+    let phaseScheduled = false;
 
-    function completionPhase() {
-      if (recording()) return 'recording';
-      if (q('[' + PHASE_ATTR + '="feedback"]')) return 'feedback';
-      return 'idle';
+    function phaseNow() {
+      if (q('[' + PHASE_ATTR + '="recording"]')) return 'recording';
+      const row = q('[' + PHASE_ATTR + ']');
+      if (!row) return 'idle';
+      return row.getAttribute(PHASE_ATTR) === 'feedback' ? 'feedback' : 'active';
     }
 
-    function watchCompletion() {
-      stopWatchingCompletion();
-      const startedAt = Date.now();
-      let seen = false;
-      completionTimer = setInterval(() => {
-        const phase = completionPhase();
-        if (phase !== 'idle') { seen = true; return; }
-        if (seen) {
-          stopWatchingCompletion();
-          focusComposer();
-          if (readSettings().autoSend) autoSendAfterTranscribe();
-          return;
-        }
-        if (Date.now() - startedAt > 120000) stopWatchingCompletion();
-      }, 120);
+    function onPhase(phase) {
+      // 新一轮录音开始（不管热键还是鼠标）：记下基线，并把上一轮没发出去的定时器作废
+      if (phase !== 'idle' && !sessionActive) {
+        sessionActive = true;
+        stopAutoSend();
+        sessionComposer = composer();
+        sessionBaseline = composerText();
+      }
+      if (!sessionActive) return;
+      // 麦克风真正开录才算「说完」，requesting 阶段还没声音可判
+      if (phase === 'recording') { startVad(); return; }
+      if (phase !== 'idle') return;
+      // 这一轮结束了。说话过程中人可能去点了别处，焦点跑了 —— 送回输入框末尾
+      sessionActive = false;
+      stopVad();
+      const sameComposer = composer() === sessionComposer;
+      focusComposer();
+      if (!sameComposer || composerText().length <= sessionBaseline.length) { stopAutoSend(); return; }
+      if (readSettings().autoSend) autoSendAfterTranscribe();
     }
 
-    function stopWatchingCompletion() {
-      if (completionTimer) { clearInterval(completionTimer); completionTimer = null; }
+    function checkPhase() {
+      phaseScheduled = false;
+      const phase = phaseNow();
+      if (phase === lastPhase) return;
+      lastPhase = phase;
+      try { onPhase(phase); } catch (e) { warn('相位收尾失败：' + e); }
+    }
+
+    // 界面在流式输出时 DOM 变动非常密集，50ms 合并一次足够，别跟着每一次变动跑
+    function schedulePhaseCheck() {
+      if (phaseScheduled) return;
+      phaseScheduled = true;
+      setTimeout(checkPhase, 50);
+    }
+
+    function observePhases() {
+      if (phaseObserver) return;
+      lastPhase = phaseNow();
+      try {
+        phaseObserver = new MutationObserver(schedulePhaseCheck);
+        phaseObserver.observe(document.documentElement, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: [PHASE_ATTR],
+        });
+      } catch (e) {
+        phaseObserver = null;
+        warn('相位观测没挂上，鼠标开录的收尾可能失效：' + e);
+      }
+      // 插件在录制中途才加载（热重载、切回来）时，也要接管这一轮
+      if (lastPhase !== 'idle') onPhase(lastPhase);
+    }
+
+    function unobservePhases() {
+      if (!phaseObserver) return;
+      try { phaseObserver.disconnect(); } catch (e) { /* 忽略 */ }
+      phaseObserver = null;
+      phaseScheduled = false;
+      sessionActive = false;
     }
 
     function startRecording() {
@@ -286,9 +341,7 @@ window.__ModuleLoader__.load({
       if (!target) { warn('没找到官方的「开始录音」按钮：语音输入插件可能未启用。'); return false; }
       focusComposer();
       stopAutoSend();
-      const started = click(target);
-      if (started) watchCompletion();
-      return started;
+      return click(target);
     }
 
     function stopRecording() {
@@ -312,7 +365,7 @@ window.__ModuleLoader__.load({
     let vad = null;
 
     async function startVad() {
-      stopVad();
+      if (vad) return;                  // 这一轮已经在分析了，别重复开一路麦克风
       const settings = readSettings();
       if (!settings.autoStop) return;   // 设置里关了静音自动停
       const md = navigator.mediaDevices;
@@ -390,7 +443,8 @@ window.__ModuleLoader__.load({
       e.stopPropagation();
       if (recording()) { pressAt = 0; stopRecording(); stopVad(); return; }
       pressAt = Date.now();
-      if (startRecording()) startVad();
+      // 静音自动停由相位观测统一启动，鼠标点麦克风开录时也照样生效
+      startRecording();
     }
 
     function onKeyUp(e) {
@@ -624,11 +678,14 @@ window.__ModuleLoader__.load({
           window.addEventListener('keydown', onKeyDown, true);
           window.addEventListener('keyup', onKeyUp, true);
           window.addEventListener('blur', () => { pressAt = 0; }, true);
+          observePhases();
         };
         const dispose = () => {
           window.removeEventListener('keydown', onKeyDown, true);
           window.removeEventListener('keyup', onKeyUp, true);
+          unobservePhases();
           stopVad();
+          stopAutoSend();
         };
         if (ctx && typeof ctx.effect === 'function') ctx.effect(() => { install(); return dispose; });
         else install();

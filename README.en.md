@@ -30,6 +30,8 @@ Or type `dsh-voice-hotkey` into the install box on the **Plugins** page. Restart
 
 Press the hotkey, speak, and two seconds of silence ends the take; the text lands in the composer with focus intact, Enter sends. A short tap toggles, holding and releasing means "stop when I let go".
 
+**Clicking the microphone button beside the send button works the same way**: the plugin watches the official recording phase, so auto-stop, focus restoration and auto-send apply no matter how the take was started.
+
 To skip the Enter key too, turn on **Send automatically** in settings: the message goes out as soon as the transcript lands.
 
 **Both hotkeys are yours to rebind or disable**, including a separate "focus the composer" hotkey (dsh has no such command). The silence threshold, auto-stop and auto-send live in the same panel — the screenshot above.

@@ -217,7 +217,11 @@ window.__ModuleLoader__.load({
 
     function sendComposer() {
       const button = findByLabels(SEND_LABELS, null);
-      if (button) return click(button);
+      if (button) {
+        // 这次是程序代点的，别被「录音中点发送 = 转完再发」的拦截器再拦一次
+        bypassSendClick = true;
+        try { return click(button); } finally { bypassSendClick = false; }
+      }
       // 没有发送按钮（例如正在生成时按钮变成「停止」）：退回合成一次回车
       const el = composer();
       if (!el) return false;
@@ -236,18 +240,19 @@ window.__ModuleLoader__.load({
       if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
     }
 
-    function autoSendAfterTranscribe(attempt) {
+    function autoSendAfterTranscribe(attempt, force) {
       stopAutoSend();
       const tries = typeof attempt === 'number' ? attempt : 0;
+      const forced = !!force;                      // 本轮是「点发送按钮」明确要求的，不受设置开关影响
       const baseline = sessionBaseline;
       const target = sessionComposer;
       sendTimer = setTimeout(() => {
         sendTimer = null;
-        if (!readSettings().autoSend) return;      // 中途关掉就不再发
+        if (!forced && !readSettings().autoSend) return; // 中途关掉就不再发
         if (sessionActive) return;                 // 新一轮录音已经开始，旧的作废
         // 只认「同一个输入框、比开录前多了字」：手动取消、转写失败、切会话都不该触发发送
         if (composer() !== target || composerText().length <= baseline.length) {
-          if (tries < 6) autoSendAfterTranscribe(tries + 1);
+          if (tries < 6) autoSendAfterTranscribe(tries + 1, forced);
           return;
         }
         sendComposer();
@@ -261,6 +266,9 @@ window.__ModuleLoader__.load({
     let sessionActive = false;   // 当前这一轮录音是否还在进行
     let sessionBaseline = '';    // 开录前输入框里已有的文字，用来看转写有没有真的落进来
     let sessionComposer = null;  // 开录时那个输入框节点，切会话后就不该再发旧内容
+    let sendOnFinish = false;    // 这一轮点了「转完就发」：转写落地后直接按发送
+    let recStart = 0;            // 这一轮真正开始录音的时间戳（画时长用）
+    let clockTimer = null;       // 录音行的计时器（每 250ms 刷新一次时长文本）
     let lastPhase = 'idle';
     let phaseObserver = null;
     let phaseScheduled = false;
@@ -276,29 +284,42 @@ window.__ModuleLoader__.load({
       // 新一轮录音开始（不管热键还是鼠标）：记下基线，并把上一轮没发出去的定时器作废
       if (phase !== 'idle' && !sessionActive) {
         sessionActive = true;
+        sendOnFinish = false;   // 「转完就发」只对点它的那一轮生效
         stopAutoSend();
         sessionComposer = composer();
         sessionBaseline = composerText();
       }
       if (!sessionActive) return;
       // 麦克风真正开录才算「说完」，requesting 阶段还没声音可判
-      if (phase === 'recording') { startVad(); return; }
+      if (phase === 'recording') { if (!recStart) recStart = Date.now(); startClock(); startVad(); return; }
+      // 转写失败/待确认（feedback）：这轮作废，别把「转完即发」留到下一轮
+      if (phase === 'feedback') { sendOnFinish = false; recStart = 0; stopClock(); syncCaptureRow(); return; }
+      // 转写阶段：时长停住，等文字落地
+      if (phase === 'transcribing') { stopClock(); syncCaptureRow(); return; }
       if (phase !== 'idle') return;
       // 这一轮结束了。说话过程中人可能去点了别处，焦点跑了 —— 送回输入框末尾
       sessionActive = false;
+      recStart = 0;
       stopVad();
+      stopClock();
+      const forceSend = sendOnFinish;   // 录音/转写时点了发送按钮
+      sendOnFinish = false;
+      syncCaptureRow();
       const sameComposer = composer() === sessionComposer;
       focusComposer();
       if (!sameComposer || composerText().length <= sessionBaseline.length) { stopAutoSend(); return; }
+      if (forceSend) { autoSendAfterTranscribe(0, true); return; }
       if (readSettings().autoSend) autoSendAfterTranscribe();
     }
 
     function checkPhase() {
       phaseScheduled = false;
       const phase = phaseNow();
-      if (phase === lastPhase) return;
-      lastPhase = phase;
-      try { onPhase(phase); } catch (e) { warn('相位收尾失败：' + e); }
+      if (phase !== lastPhase) {
+        lastPhase = phase;
+        try { onPhase(phase); } catch (e) { warn('相位收尾失败：' + e); }
+      }
+      syncCaptureRow();
     }
 
     // 界面在流式输出时 DOM 变动非常密集，50ms 合并一次足够，别跟着每一次变动跑
@@ -325,6 +346,7 @@ window.__ModuleLoader__.load({
       }
       // 插件在录制中途才加载（热重载、切回来）时，也要接管这一轮
       if (lastPhase !== 'idle') onPhase(lastPhase);
+      syncCaptureRow();
     }
 
     function unobservePhases() {
@@ -333,6 +355,8 @@ window.__ModuleLoader__.load({
       phaseObserver = null;
       phaseScheduled = false;
       sessionActive = false;
+      sendOnFinish = false;
+      syncCaptureRow();
     }
 
     function startRecording() {
@@ -352,6 +376,125 @@ window.__ModuleLoader__.load({
       // 点击落在启动尚未落地的瞬间会扑空：400ms 后仍在录就再补一次
       setTimeout(() => { if (recording()) { const again = findByLabels(STOP_LABELS, null); if (again) click(again); } }, 400);
       return ok;
+    }
+
+    // ── 复用官方那个发送箭头：录音/转写中点它 = 「转完就发」 ─────────────────
+    // 官方录音行本来就 有 X（取消）和停止（开始转写），发送箭头也一直在右边；
+    // 再插一个纸飞机就会一屏两个发送，所以不新增按钮，改成接管官方那个箭头的点击：
+    //   · 录音中点 → 停止、转写、落地后直接发送（不用看文字）
+    //   · 转写中点 → 同样只是设标记，等转写落地再发
+    //   · 再点一次 → 取消设定
+    // 非录音/转写阶段完全不拦，正常发送不受影响。
+    const ARMED_ATTR = 'data-voice-hotkey-armed';
+    const CHIP_ATTR = 'data-voice-hotkey-chip';
+    let bypassSendClick = false;
+
+    function onSendClickCapture(event) {
+      if (bypassSendClick || !sessionActive) return;
+      const target = event.target && event.target.closest ? event.target.closest('button') : null;
+      if (!target) return;
+      const label = target.getAttribute('aria-label') || '';
+      if (SEND_LABELS.indexOf(label) < 0) return;   // 不是官方发送箭头
+      // 直接读官方相位：phaseNow() 会把 transcribing 归成 'active'，这里要原值
+      const row = q('[' + PHASE_ATTR + ']');
+      const phase = row ? row.getAttribute(PHASE_ATTR) : 'idle';
+      if (phase !== 'recording' && phase !== 'transcribing') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (sendOnFinish) { sendOnFinish = false; syncCaptureRow(); return; }  // 再点一次 = 取消
+      sendOnFinish = true;
+      syncCaptureRow();
+      if (phase === 'recording') { stopRecording(); stopVad(); }
+    }
+
+    function isEn() { return String(navigator.language || '').toLowerCase().startsWith('en'); }
+
+    function ensureArmedChip(row) {
+      let chip = row.querySelector('[' + CHIP_ATTR + ']');
+      if (!sendOnFinish) { if (chip) chip.remove(); return; }
+      if (chip) return;
+      const en = isEn();
+      chip = document.createElement('span');
+      chip.className = 'vhk-armed';
+      chip.setAttribute(CHIP_ATTR, '');
+      chip.textContent = en ? 'Sends when ready' : '转完即发';
+      chip.title = en ? 'Click to cancel' : '点击取消';
+      chip.addEventListener('mousedown', (event) => { event.preventDefault(); });
+      chip.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        sendOnFinish = false;
+        syncCaptureRow();
+      });
+      row.appendChild(chip);
+    }
+
+    // 相位变化、或 React 重渲染时：同步提示、发送箭头高亮、状态字/红点/时长
+    function syncCaptureRow() {
+      try {
+        // 热重载后页面上可能还挂着旧版注入的纸飞机，清掉
+        const stale = document.querySelectorAll('[data-voice-hotkey-send]');
+        for (let i = 0; i < stale.length; i++) stale[i].remove();
+        const sendBtn = findByLabels(SEND_LABELS, null);
+        if (sendBtn) sendBtn.setAttribute(ARMED_ATTR, sendOnFinish ? 'true' : 'false');
+        const row = q('[' + PHASE_ATTR + ']');
+        if (!row) return;
+        ensureArmedChip(row);
+        ensureCaptureParts(row);
+      } catch (e) { /* 忽略：提示画不出来不影响录音本身 */ }
+    }
+
+    // ── 录音行的状态字 / 红点 / 时长 ───────────────────────────────────────
+    // 官方那行只有 X + 波形 + 停止，看不出「在听」和录了多久。这里补三样：
+    // 「正在聆听…」一行、左侧呼吸红点、右侧 0:07 这样的时长（转写时停住）。
+    function ensureCaptureParts(row) {
+      const phase = row.getAttribute(PHASE_ATTR);
+      const live = phase === 'recording';   // 一停录，红点和计时立刻收掉，不等转写结束
+      // 状态字不塞进这行了：占一行会把按钮挤下去，只保留红点和时长
+      const staleStatus = row.querySelector('.vhk-status'); if (staleStatus) staleStatus.remove();
+      row.classList.remove('vhk-live');
+      if (!live) {
+        for (const sel of ['.vhk-dot', '.vhk-time']) {
+          const node = row.querySelector(sel); if (node) node.remove();
+        }
+        return;
+      }
+      if (!row.querySelector('.vhk-dot')) {
+        const dot = document.createElement('span');
+        dot.className = 'vhk-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        row.insertBefore(dot, row.firstChild);
+      }
+      let time = row.querySelector('.vhk-time');
+      if (!time) {
+        time = document.createElement('span');
+        time.className = 'vhk-time';
+        const firstButton = row.querySelector('button');
+        row.insertBefore(time, firstButton);   // 放在按钮左边（CSS order 兜底）
+      }
+      time.textContent = elapsedText();
+    }
+
+    function elapsedText() {
+      const s = recStart ? Math.max(0, Math.round((Date.now() - recStart) / 1000)) : 0;
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function startClock() {
+      if (clockTimer) return;
+      clockTimer = setInterval(() => {
+        const row = q('[' + PHASE_ATTR + ']');
+        if (!row) { stopClock(); return; }
+        const time = row.querySelector('.vhk-time');
+        if (time) time.textContent = elapsedText();
+      }, 250);
+    }
+
+    function stopClock() {
+      if (!clockTimer) return;
+      clearInterval(clockTimer);
+      clockTimer = null;
     }
 
     let warned = {};
@@ -517,6 +660,41 @@ window.__ModuleLoader__.load({
 .vhk-kbd.vhk-off{color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.9));border-style:dashed}
 .vhk-foot{margin:12px 0 2px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-tertiary,rgba(140,140,140,.85))}
 .vhk-disabled{opacity:.45;pointer-events:none}
+/* 录音行：「红点 · 波形 · 时长」在左，取消 / 确认聚右 */
+[data-voice-activity]{gap:8px!important;align-items:center}
+[data-voice-activity]>button{order:3;flex:none;min-width:34px;width:34px;height:34px;padding:0;border-radius:999px;
+  background:transparent!important;color:var(--dsw-alias-label-secondary,#aaa)}
+[data-voice-activity]>button:hover{color:inherit;
+  background:var(--dsw-alias-interactive-bg-hover-solid,rgba(128,128,128,.2))!important}
+[data-voice-activity]>button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4f9cf9);outline-offset:1px}
+[data-voice-activity]>svg{order:1;height:24px}
+/* 录音中的呼吸绿点 */
+.vhk-dot{order:1;flex:none;margin-left:10px;width:7px;height:7px;border-radius:50%;
+  background:var(--dsw-alias-state-success-primary,#3fbf7f);
+  animation:vhk-pulse 1.6s ease-out infinite}
+@keyframes vhk-pulse{0%{box-shadow:0 0 0 0 rgba(63,191,127,.55)}70%{box-shadow:0 0 0 5px rgba(63,191,127,0)}100%{box-shadow:0 0 0 0 rgba(63,191,127,0)}}
+/* 已录时长，转写时停住 */
+.vhk-time{order:2;flex:none;font-size:14px;line-height:1;font-variant-numeric:tabular-nums;
+  color:var(--dsw-alias-label-secondary,#9aa0aa);min-width:32px;text-align:right}
+/* 取消和确认统一成同一套线条：16px、1.6 描边、同样的灰；官方图标换成自绘 mask */
+[data-voice-activity]>button:first-of-type svg{display:none}
+[data-voice-activity]>button:first-of-type::before{content:"";width:18px;height:18px;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") center/18px 18px no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") center/18px 18px no-repeat}
+[data-voice-activity="recording"]>button:last-of-type svg{display:none}
+[data-voice-activity="recording"]>button:last-of-type::before{content:"";width:18px;height:18px;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.6l3.2 3.2L13 4.6'/%3E%3C/svg%3E") center/18px 18px no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.6l3.2 3.2L13 4.6'/%3E%3C/svg%3E") center/18px 18px no-repeat}
+/* 「转完即发」提示：点了官方发送箭头后出现，点它取消 */
+[data-voice-activity]>.vhk-armed{order:4;flex:none;min-width:auto}
+.vhk-armed{display:inline-flex;align-items:center;flex:none;padding:2px 9px;border-radius:999px;
+  font-size:12px;line-height:1.6;white-space:nowrap;cursor:pointer;user-select:none;
+  color:var(--dsw-alias-state-business-primary,#4f9cf9);
+  background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 35%,transparent)}
+.vhk-armed:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 20%,transparent)}
+/* 官方发送箭头：已设定时描一圈，表示「这一轮转完就发」 */
+button[data-voice-hotkey-armed="true"]{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4f9cf9) 55%,transparent)}
 `;
         document.head.appendChild(style);
       } catch (e) { warn('样式没注入：' + e); }
@@ -696,14 +874,17 @@ window.__ModuleLoader__.load({
         const install = () => {
           window.addEventListener('keydown', onKeyDown, true);
           window.addEventListener('keyup', onKeyUp, true);
+          window.addEventListener('click', onSendClickCapture, true);
           window.addEventListener('blur', () => { pressAt = 0; }, true);
           observePhases();
         };
         const dispose = () => {
           window.removeEventListener('keydown', onKeyDown, true);
           window.removeEventListener('keyup', onKeyUp, true);
+          window.removeEventListener('click', onSendClickCapture, true);
           unobservePhases();
           stopVad();
+          stopClock();
           stopAutoSend();
         };
         if (ctx && typeof ctx.effect === 'function') ctx.effect(() => { install(); return dispose; });
